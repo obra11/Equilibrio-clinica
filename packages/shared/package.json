@@ -15,9 +15,8 @@
     "dev": "tsc -p tsconfig.json --watch"
   },
   "dependencies": {
+    "typescript": "^5.7.3",
     "zod": "^3.24.1"
   },
-  "devDependencies": {
-    "typescript": "^5.7.3"
-  }
+  "devDependencies": {}
 }

@@ -1,0 +1,15 @@
+[phases.setup]
+nixPkgs = ["openssl"]
+
+[variables]
+NPM_CONFIG_PRODUCTION = "false"
+NIXPACKS_NODE_VERSION = "20"
+
+[phases.install]
+cmds = ["npm ci"]
+
+[phases.build]
+cmds = ["npm run build:api"]
+
+[start]
+cmd = "npm run start:api"

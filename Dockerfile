@@ -1,0 +1,28 @@
+# API — Equilíbrio (NestJS + Prisma)
+FROM node:20-bookworm-slim AS base
+WORKDIR /app
+RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+
+FROM base AS deps
+COPY package.json package-lock.json ./
+COPY apps/api/package.json ./apps/api/
+COPY apps/web/package.json ./apps/web/
+COPY packages/shared/package.json ./packages/shared/
+RUN npm ci
+
+FROM deps AS build
+COPY . .
+RUN npm run build:api
+
+FROM base AS runner
+ENV NODE_ENV=production
+ENV PORT=3001
+WORKDIR /app
+COPY --from=build /app/package.json /app/package-lock.json ./
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/apps ./apps
+COPY --from=build /app/packages ./packages
+RUN mkdir -p /data/uploads
+ENV UPLOADS_DIR=/data/uploads
+EXPOSE 3001
+CMD ["npm", "run", "start:api"]
