@@ -1,0 +1,25 @@
+{
+  "name": "equilibrio",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev:api",
+    "dev:all": "echo Rode em dois terminais: npm run dev:api e npm run dev:web",
+    "dev:api": "npm run dev -w @equilibrio/api",
+    "dev:web": "npm run dev -w @equilibrio/web",
+    "build": "npm run build -w @equilibrio/shared && npm run build -w @equilibrio/api && npm run build -w @equilibrio/web",
+    "build:api": "npm run build -w @equilibrio/shared && npm run prisma:generate -w @equilibrio/api && npm run build -w @equilibrio/api",
+    "build:web": "npm run build -w @equilibrio/shared && npm run build -w @equilibrio/web",
+    "start:api": "npm run start:prod -w @equilibrio/api",
+    "start:web": "npm run start -w @equilibrio/web",
+    "db:generate": "npm run prisma:generate -w @equilibrio/api",
+    "db:push": "npm run prisma:push -w @equilibrio/api",
+    "db:seed": "npm run prisma:seed -w @equilibrio/api"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

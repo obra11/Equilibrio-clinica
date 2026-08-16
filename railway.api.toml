@@ -1,0 +1,30 @@
+# Deploy na Railway
+#
+# Crie 3 recursos no mesmo projeto:
+# 1) PostgreSQL (plugin)
+# 2) Serviço "api"  — Build: npm run build:api  | Start: npm run start:api
+# 3) Serviço "web"  — Build: npm run build:web  | Start: npm run start:web
+#
+# Variáveis API:
+#   DATABASE_URL=${{Postgres.DATABASE_URL}}
+#   JWT_SECRET=<gere um segredo>
+#   CORS_ORIGIN=https://<seu-dominio-web>
+#   PORT (Railway injeta automaticamente)
+#   UPLOADS_DIR=/data/uploads  (+ Volume montado em /data/uploads)
+#   CLINIC_NAME=Equilíbrio Fisioterapia e Bem-Estar
+#   WHATSAPP_PROVIDER=console
+#
+# Variáveis Web:
+#   NEXT_PUBLIC_API_URL=https://<url-publica-da-api>/api
+#
+# Domínio: Custom Domain no serviço web (+ api.seudominio no serviço api)
+# DNS no Registro.br: CNAME/A conforme a Railway indicar.
+
+[build]
+builder = "NIXPACKS"
+buildCommand = "npm run build:api"
+
+[deploy]
+startCommand = "npm run start:api"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5

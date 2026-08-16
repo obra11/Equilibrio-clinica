@@ -1,0 +1,267 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String        @id @default(uuid())
+  email        String        @unique
+  passwordHash String
+  role         String        @default("FISIOTERAPEUTA")
+  active       Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  professional Professional?
+}
+
+model Professional {
+  id            String               @id @default(uuid())
+  userId        String               @unique
+  user          User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName      String
+  crefito       String?
+  specialties   String               @default("[]")
+  color         String               @default("#585E45")
+  photoUrl      String?
+  phone         String?
+  whatsapp      String?
+  /// Endereço residencial
+  zipCode       String?
+  street        String?
+  number        String?
+  complement    String?
+  neighborhood  String?
+  city          String?
+  state         String?
+  /// Dados bancários (repasse / contas a pagar)
+  accountHolder String?
+  bankName      String?
+  bankAgency    String?
+  bankAccount   String?
+  bankAccountType String?
+  pixKey        String?
+  pixKeyType    String?
+  active        Boolean              @default(true)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  appointments  Appointment[]
+  classSessions ClassSession[]
+  sessionNotes  SessionNote[]
+  assessments   PhysicalAssessment[]
+  payables      AccountPayable[]
+}
+
+model Patient {
+  id            String               @id @default(uuid())
+  fullName      String
+  cpf           String?
+  phone         String?
+  whatsapp      String?
+  email         String?
+  birthDate     DateTime?
+  photoUrl      String?
+  /// Soft-delete: false = arquivado (não aparece nas listagens)
+  active        Boolean              @default(true)
+  /// Endereço (tomador NFSe)
+  zipCode       String?
+  street        String?
+  number        String?
+  complement    String?
+  neighborhood  String?
+  city          String?
+  state         String?
+  notes         String?
+  isParticular  Boolean              @default(true)
+  insuranceName String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  appointments  Appointment[]
+  enrollments   ClassEnrollment[]
+  sessionNotes  SessionNote[]
+  assessments   PhysicalAssessment[]
+  receivables   AccountReceivable[]
+}
+
+model Room {
+  id            String         @id @default(uuid())
+  name          String
+  capacity      Int            @default(1)
+  active        Boolean        @default(true)
+  appointments  Appointment[]
+  classSessions ClassSession[]
+}
+
+model ServiceType {
+  id            String         @id @default(uuid())
+  name          String
+  durationMin   Int            @default(50)
+  priceCents    Int            @default(0)
+  isGroup       Boolean        @default(false)
+  active        Boolean        @default(true)
+  appointments  Appointment[]
+  classSessions ClassSession[]
+}
+
+model Appointment {
+  id             String              @id @default(uuid())
+  patientId      String
+  patient        Patient             @relation(fields: [patientId], references: [id])
+  professionalId String
+  professional   Professional        @relation(fields: [professionalId], references: [id])
+  serviceTypeId  String
+  serviceType    ServiceType         @relation(fields: [serviceTypeId], references: [id])
+  roomId         String?
+  room           Room?               @relation(fields: [roomId], references: [id])
+  startsAt       DateTime
+  endsAt         DateTime
+  status         String              @default("AGENDADO")
+  /// Valor cobrado nesta sessão (centavos)
+  priceCents     Int                 @default(0)
+  /// AVULSA | PACOTE | CORTESIA
+  billingType    String              @default("AVULSA")
+  notes          String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  sessionNotes   SessionNote[]
+  receivables    AccountReceivable[]
+}
+
+model ClassSession {
+  id             String            @id @default(uuid())
+  title          String
+  professionalId String
+  professional   Professional      @relation(fields: [professionalId], references: [id])
+  serviceTypeId  String
+  serviceType    ServiceType       @relation(fields: [serviceTypeId], references: [id])
+  roomId         String?
+  room           Room?             @relation(fields: [roomId], references: [id])
+  capacity       Int               @default(6)
+  startsAt       DateTime
+  endsAt         DateTime
+  notes          String?
+  /// Turma recorrente: agrupa as aulas geradas
+  seriesGroupId  String?
+  /// Dias da semana da turma (JSON, 0=dom … 6=sáb)
+  weekdays       String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  enrollments    ClassEnrollment[]
+}
+
+model ClassEnrollment {
+  id             String       @id @default(uuid())
+  classSessionId String
+  classSession   ClassSession @relation(fields: [classSessionId], references: [id], onDelete: Cascade)
+  patientId      String
+  patient        Patient      @relation(fields: [patientId], references: [id])
+  status         String       @default("CONFIRMADO")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([classSessionId, patientId])
+}
+
+model SessionNote {
+  id             String        @id @default(uuid())
+  patientId      String
+  patient        Patient       @relation(fields: [patientId], references: [id])
+  professionalId String
+  professional   Professional  @relation(fields: [professionalId], references: [id])
+  appointmentId  String?
+  appointment    Appointment?  @relation(fields: [appointmentId], references: [id])
+  subjective     String?
+  objective      String?
+  assessment     String?
+  plan           String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model PhysicalAssessment {
+  id              String       @id @default(uuid())
+  patientId       String
+  patient         Patient      @relation(fields: [patientId], references: [id])
+  professionalId  String
+  professional    Professional @relation(fields: [professionalId], references: [id])
+  painVas         Int?
+  romNotes        String?
+  strengthNotes   String?
+  functionalTests String?
+  observations    String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+}
+
+model Category {
+  id          String              @id @default(uuid())
+  name        String
+  kind        String
+  receivables AccountReceivable[]
+  payables    AccountPayable[]
+}
+
+model AccountReceivable {
+  id                String       @id @default(uuid())
+  patientId         String?
+  patient           Patient?     @relation(fields: [patientId], references: [id])
+  appointmentId     String?
+  appointment       Appointment? @relation(fields: [appointmentId], references: [id])
+  categoryId        String?
+  category          Category?    @relation(fields: [categoryId], references: [id])
+  description       String
+  amountCents       Int
+  paidCents         Int          @default(0)
+  dueDate           DateTime
+  status            String       @default("ABERTO")
+  invoiceStatus     String       @default("NAO_APLICAVEL")
+  onlineChargeId    String?
+  notes             String?
+  /// Lançamento que se repete mensalmente
+  recurring         Boolean      @default(false)
+  recurrenceGroupId String?
+  recurrenceIndex   Int?
+  recurrenceTotal   Int?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  payments          Payment[]
+}
+
+model AccountPayable {
+  id                String        @id @default(uuid())
+  categoryId        String?
+  category          Category?     @relation(fields: [categoryId], references: [id])
+  professionalId    String?
+  professional      Professional? @relation(fields: [professionalId], references: [id])
+  description       String
+  vendor            String?
+  amountCents       Int
+  paidCents         Int           @default(0)
+  dueDate           DateTime
+  status            String        @default("ABERTO")
+  notes             String?
+  /// Lançamento que se repete mensalmente
+  recurring         Boolean       @default(false)
+  recurrenceGroupId String?
+  recurrenceIndex   Int?
+  recurrenceTotal   Int?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  payments          Payment[]
+}
+
+model Payment {
+  id           String             @id @default(uuid())
+  receivableId String?
+  receivable   AccountReceivable? @relation(fields: [receivableId], references: [id])
+  payableId    String?
+  payable      AccountPayable?    @relation(fields: [payableId], references: [id])
+  amountCents  Int
+  method       String             @default("PIX")
+  paidAt       DateTime           @default(now())
+  notes        String?
+  createdAt    DateTime           @default(now())
+}

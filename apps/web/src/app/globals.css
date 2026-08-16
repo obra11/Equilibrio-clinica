@@ -1,0 +1,43 @@
+@import url("https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Playfair+Display:wght@500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-playfair: "Playfair Display", Georgia, serif;
+  --font-montserrat: "Montserrat", system-ui, sans-serif;
+  --eq-cream: #f2eee4;
+  --eq-olive: #585e45;
+  --eq-gold: #b5a478;
+  --eq-charcoal: #2f2f2a;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  background: var(--eq-cream);
+  color: var(--eq-charcoal);
+  font-family: var(--font-montserrat);
+}
+
+@layer components {
+  .eq-btn {
+    @apply inline-flex items-center justify-center rounded-md bg-olive px-4 py-2 text-sm font-semibold text-cream transition hover:bg-olive-muted disabled:opacity-50;
+  }
+  .eq-btn-ghost {
+    @apply inline-flex items-center justify-center rounded-md border border-borderEq bg-white/70 px-4 py-2 text-sm font-medium text-olive transition hover:bg-white;
+  }
+  .eq-input {
+    @apply w-full rounded-md border border-borderEq bg-white px-3 py-2 text-sm text-charcoal outline-none ring-olive/30 focus:ring-2;
+  }
+  .eq-label {
+    @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-olive-muted;
+  }
+  .eq-card {
+    @apply rounded-xl border border-borderEq bg-white/80 p-5 shadow-sm;
+  }
+}
