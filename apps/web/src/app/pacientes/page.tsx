@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { PatientAvatar } from "@/components/PatientAvatar";
 import { formatCpf } from "@/components/PatientForm";
-import { api, getToken } from "@/lib/api";
+import { api, getStoredUser, getToken } from "@/lib/api";
 
 type Patient = {
   id: string;
@@ -24,6 +24,7 @@ type Patient = {
 
 export default function PacientesPage() {
   const router = useRouter();
+  const canDelete = getStoredUser()?.role === "ADMIN";
   const [patients, setPatients] = useState<Patient[]>([]);
   const [q, setQ] = useState("");
   const [error, setError] = useState("");
@@ -44,8 +45,9 @@ export default function PacientesPage() {
   }, [router]);
 
   async function onDelete(patient: Patient) {
+    if (!canDelete) return;
     const ok = window.confirm(
-      `Excluir o paciente "${patient.fullName}"?\nEssa ação remove também agendamentos e lançamentos ligados a ele.`,
+      `Arquivar o paciente "${patient.fullName}"?\nEle sai das listagens, mas o histórico permanece no sistema.`,
     );
     if (!ok) return;
     setError("");
@@ -141,14 +143,16 @@ export default function PacientesPage() {
                       <Link href={`/pacientes/${p.id}/editar`} className="eq-btn-ghost px-3 py-1.5 text-xs">
                         Editar
                       </Link>
-                      <button
-                        type="button"
-                        className="rounded-md border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-50"
-                        disabled={deletingId === p.id}
-                        onClick={() => onDelete(p)}
-                      >
-                        {deletingId === p.id ? "..." : "Excluir"}
-                      </button>
+                      {canDelete ? (
+                        <button
+                          type="button"
+                          className="rounded-md border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-50"
+                          disabled={deletingId === p.id}
+                          onClick={() => onDelete(p)}
+                        >
+                          {deletingId === p.id ? "..." : "Arquivar"}
+                        </button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>

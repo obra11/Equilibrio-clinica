@@ -10,12 +10,14 @@ import { FinanceModule } from "./finance/finance.module";
 import { DashboardModule } from "./dashboard/dashboard.module";
 import { CatalogModule } from "./catalog/catalog.module";
 import { WhatsappModule } from "./whatsapp/whatsapp.module";
+import { MediaModule } from "./media/media.module";
 
 @Module({
   imports: [
     PrismaModule,
     WhatsappModule,
     AuthModule,
+    MediaModule,
     PatientsModule,
     ProfessionalsModule,
     AppointmentsModule,

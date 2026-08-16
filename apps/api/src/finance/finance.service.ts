@@ -220,18 +220,21 @@ export class FinanceService {
     return this.prisma.category.create({ data: { name, kind } });
   }
 
-  async dashboard() {
+  async dashboard(role = "ADMIN") {
     const openStatuses = ["ABERTO", "PARCIAL", "VENCIDO"];
+    const canSeePayables = role === "ADMIN";
     const [receivables, payables] = await Promise.all([
       this.prisma.accountReceivable.findMany({
         where: { status: { in: openStatuses } },
         include: { patient: true },
         orderBy: { dueDate: "asc" },
       }),
-      this.prisma.accountPayable.findMany({
-        where: { status: { in: openStatuses } },
-        orderBy: { dueDate: "asc" },
-      }),
+      canSeePayables
+        ? this.prisma.accountPayable.findMany({
+            where: { status: { in: openStatuses } },
+            orderBy: { dueDate: "asc" },
+          })
+        : Promise.resolve([]),
     ]);
 
     const start = new Date();

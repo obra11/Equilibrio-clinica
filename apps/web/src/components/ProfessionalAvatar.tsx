@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { apiUpload, mediaUrl } from "@/lib/api";
+import { apiUpload, fetchMediaObjectUrl } from "@/lib/api";
 
 type Props = {
   professionalId: string;
@@ -23,12 +23,26 @@ export function ProfessionalAvatar({
   onUpdated,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [preview, setPreview] = useState<string | null>(mediaUrl(photoUrl));
+  const [preview, setPreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    setPreview(mediaUrl(photoUrl));
+    let active = true;
+    let objectUrl: string | null = null;
+    setPreview(null);
+    fetchMediaObjectUrl(photoUrl).then((url) => {
+      if (!active) {
+        if (url) URL.revokeObjectURL(url);
+        return;
+      }
+      objectUrl = url;
+      setPreview(url);
+    });
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
   }, [photoUrl]);
 
   const dim = size === "lg" ? "h-20 w-20 text-2xl" : "h-12 w-12 text-base";
@@ -46,11 +60,12 @@ export function ProfessionalAvatar({
         `/professionals/${professionalId}/photo`,
         fd,
       );
-      const url = mediaUrl(updated.photoUrl);
+      const url = await fetchMediaObjectUrl(updated.photoUrl);
       setPreview(url);
       onUpdated?.(updated.photoUrl);
     } catch (err) {
-      setPreview(mediaUrl(photoUrl));
+      const url = await fetchMediaObjectUrl(photoUrl);
+      setPreview(url);
       setError(err instanceof Error ? err.message : "Falha no upload");
     } finally {
       setUploading(false);
@@ -84,7 +99,7 @@ export function ProfessionalAvatar({
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept="image/jpeg,image/png,image/webp"
         className="hidden"
         onChange={(e) => onFileChange(e.target.files?.[0])}
       />

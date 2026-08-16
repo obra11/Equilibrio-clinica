@@ -1,28 +1,32 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
+import { assertJwtSecret } from "../common/jwt-secret";
+import { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor() {
+  constructor(private prisma: PrismaService) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET || "equilibrio-dev-secret-change-in-production",
+      secretOrKey: assertJwtSecret(),
     });
   }
 
-  validate(payload: {
-    sub: string;
-    email: string;
-    role: string;
-    professionalId: string | null;
-  }) {
+  async validate(payload: { sub: string }) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      include: { professional: { select: { id: true, active: true } } },
+    });
+    if (!user || !user.active) {
+      throw new UnauthorizedException("Sessão inválida ou usuário inativo");
+    }
     return {
-      userId: payload.sub,
-      email: payload.email,
-      role: payload.role,
-      professionalId: payload.professionalId,
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      professionalId: user.professional?.active ? user.professional.id : null,
     };
   }
 }

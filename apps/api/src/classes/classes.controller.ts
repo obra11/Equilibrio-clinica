@@ -10,9 +10,9 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { ClassesService } from "./classes.service";
-import { JwtAuthGuard } from "../common/guards";
+import { JwtAuthGuard, Roles, RolesGuard } from "../common/guards";
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller("classes")
 export class ClassesController {
   constructor(private classes: ClassesService) {}
@@ -22,6 +22,7 @@ export class ClassesController {
     return this.classes.list({ from, to });
   }
 
+  @Roles("ADMIN", "RECEPCAO", "FISIOTERAPEUTA")
   @Patch("enrollments/:enrollmentId")
   updateEnrollment(
     @Param("enrollmentId") enrollmentId: string,
@@ -30,6 +31,7 @@ export class ClassesController {
     return this.classes.updateEnrollment(enrollmentId, body.status);
   }
 
+  @Roles("ADMIN", "RECEPCAO")
   @Delete("enrollments/:enrollmentId")
   removeEnrollment(@Param("enrollmentId") enrollmentId: string) {
     return this.classes.removeEnrollment(enrollmentId);
@@ -40,21 +42,25 @@ export class ClassesController {
     return this.classes.get(id);
   }
 
+  @Roles("ADMIN", "RECEPCAO")
   @Post()
   create(@Body() body: Record<string, unknown>) {
     return this.classes.create(body as never);
   }
 
+  @Roles("ADMIN", "RECEPCAO")
   @Patch(":id")
   update(@Param("id") id: string, @Body() body: Record<string, unknown>) {
     return this.classes.update(id, body as never);
   }
 
+  @Roles("ADMIN")
   @Delete(":id")
   remove(@Param("id") id: string) {
     return this.classes.remove(id);
   }
 
+  @Roles("ADMIN", "RECEPCAO")
   @Post(":id/enroll")
   enroll(
     @Param("id") id: string,

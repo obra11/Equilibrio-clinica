@@ -8,10 +8,28 @@ export type AuthUser = {
   professional: { id: string; fullName: string; color: string } | null;
 };
 
+/** Converte /uploads/... em endpoint autenticado /api/media/... */
 export function mediaUrl(path?: string | null) {
   if (!path) return null;
-  if (path.startsWith("http") || path.startsWith("data:")) return path;
-  return `${API_ORIGIN}${path.startsWith("/") ? path : `/${path}`}`;
+  if (path.startsWith("http") || path.startsWith("data:") || path.startsWith("blob:")) {
+    return path;
+  }
+  const cleaned = path.replace(/^\/?uploads\//, "");
+  return `${API_URL}/media/${cleaned}`;
+}
+
+/** Baixa mídia com Bearer e devolve object URL (para <img>). */
+export async function fetchMediaObjectUrl(path?: string | null): Promise<string | null> {
+  const url = mediaUrl(path);
+  if (!url) return null;
+  if (url.startsWith("blob:") || url.startsWith("data:")) return url;
+  const token = getToken();
+  const res = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  if (!res.ok) return null;
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
 }
 
 export function getToken() {

@@ -61,6 +61,18 @@ function mapPatientData(data: PatientInput) {
   };
 }
 
+function sanitizeWhatsappResult(
+  result: Awaited<ReturnType<WhatsappService["sendWelcome"]>>,
+) {
+  return {
+    ok: result.ok,
+    status: result.status,
+    to: result.to,
+    provider: result.provider,
+    detail: result.detail,
+  };
+}
+
 @Injectable()
 export class PatientsService {
   constructor(
@@ -70,25 +82,28 @@ export class PatientsService {
 
   list(q?: string) {
     return this.prisma.patient.findMany({
-      where: q
-        ? {
-            OR: [
-              { fullName: { contains: q } },
-              { phone: { contains: q } },
-              { whatsapp: { contains: q } },
-              { cpf: { contains: q.replace(/\D/g, "") || q } },
-              { email: { contains: q } },
-              { city: { contains: q } },
-            ],
-          }
-        : undefined,
+      where: {
+        active: true,
+        ...(q
+          ? {
+              OR: [
+                { fullName: { contains: q } },
+                { phone: { contains: q } },
+                { whatsapp: { contains: q } },
+                { cpf: { contains: q.replace(/\D/g, "") || q } },
+                { email: { contains: q } },
+                { city: { contains: q } },
+              ],
+            }
+          : {}),
+      },
       orderBy: { fullName: "asc" },
     });
   }
 
-  async get(id: string) {
-    const patient = await this.prisma.patient.findUnique({
-      where: { id },
+  async get(id: string, role = "ADMIN") {
+    const patient = await this.prisma.patient.findFirst({
+      where: { id, active: true },
       include: {
         appointments: {
           orderBy: { startsAt: "desc" },
@@ -110,13 +125,27 @@ export class PatientsService {
             },
           },
         },
-        sessionNotes: { orderBy: { createdAt: "desc" }, include: { professional: true } },
-        assessments: { orderBy: { createdAt: "desc" }, include: { professional: true } },
-        receivables: { orderBy: { dueDate: "desc" }, take: 20 },
+        sessionNotes:
+          role === "RECEPCAO"
+            ? false
+            : { orderBy: { createdAt: "desc" }, include: { professional: true } },
+        assessments:
+          role === "RECEPCAO"
+            ? false
+            : { orderBy: { createdAt: "desc" }, include: { professional: true } },
+        receivables:
+          role === "FISIOTERAPEUTA"
+            ? false
+            : { orderBy: { dueDate: "desc" }, take: 20 },
       },
     });
     if (!patient) throw new NotFoundException("Paciente não encontrado");
-    return patient;
+    return {
+      ...patient,
+      sessionNotes: role === "RECEPCAO" ? [] : patient.sessionNotes,
+      assessments: role === "RECEPCAO" ? [] : patient.assessments,
+      receivables: role === "FISIOTERAPEUTA" ? [] : patient.receivables,
+    };
   }
 
   async create(data: PatientInput) {
@@ -126,13 +155,17 @@ export class PatientsService {
 
     const sendWelcome = data.sendWelcomeWhatsapp !== false;
     const phone = patient.whatsapp || patient.phone;
-    let welcomeWhatsapp = null as Awaited<ReturnType<WhatsappService["sendWelcome"]>> | null;
+    let welcomeWhatsapp = null as ReturnType<typeof sanitizeWhatsappResult> | null;
     if (sendWelcome) {
-      welcomeWhatsapp = await this.whatsapp.sendWelcome(patient.fullName, phone);
+      welcomeWhatsapp = sanitizeWhatsappResult(
+        await this.whatsapp.sendWelcome(patient.fullName, phone),
+      );
     } else {
       welcomeWhatsapp = {
         ok: false,
         status: "skipped",
+        to: undefined,
+        provider: undefined,
         detail: "Envio de boas-vindas desmarcado no cadastro",
       };
     }
@@ -141,9 +174,11 @@ export class PatientsService {
   }
 
   async sendWelcomeWhatsapp(id: string) {
-    const patient = await this.prisma.patient.findUnique({ where: { id } });
+    const patient = await this.prisma.patient.findFirst({ where: { id, active: true } });
     if (!patient) throw new NotFoundException("Paciente não encontrado");
-    return this.whatsapp.sendWelcome(patient.fullName, patient.whatsapp || patient.phone);
+    return sanitizeWhatsappResult(
+      await this.whatsapp.sendWelcome(patient.fullName, patient.whatsapp || patient.phone),
+    );
   }
 
   async update(id: string, data: Record<string, unknown>) {
@@ -177,23 +212,15 @@ export class PatientsService {
 
   async remove(id: string) {
     await this.get(id);
-    await this.prisma.$transaction(async (tx) => {
-      await tx.sessionNote.deleteMany({ where: { patientId: id } });
-      await tx.physicalAssessment.deleteMany({ where: { patientId: id } });
-      await tx.classEnrollment.deleteMany({ where: { patientId: id } });
-      const receivables = await tx.accountReceivable.findMany({ where: { patientId: id } });
-      for (const r of receivables) {
-        await tx.payment.deleteMany({ where: { receivableId: r.id } });
-      }
-      await tx.accountReceivable.deleteMany({ where: { patientId: id } });
-      await tx.appointment.deleteMany({ where: { patientId: id } });
-      await tx.patient.delete({ where: { id } });
+    await this.prisma.patient.update({
+      where: { id },
+      data: { active: false },
     });
     return { ok: true };
   }
 
   async updatePhoto(id: string, photoUrl: string) {
-    await this.prisma.patient.findUniqueOrThrow({ where: { id } });
+    await this.get(id);
     return this.prisma.patient.update({
       where: { id },
       data: { photoUrl },

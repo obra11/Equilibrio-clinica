@@ -5,11 +5,13 @@ import { PrismaService } from "../prisma/prisma.service";
 export class DashboardService {
   constructor(private prisma: PrismaService) {}
 
-  async summary() {
+  async summary(role: string) {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
     const end = new Date();
     end.setHours(23, 59, 59, 999);
+
+    const canSeeFinance = role === "ADMIN" || role === "RECEPCAO";
 
     const [appointmentsToday, classesToday, openReceivables, openPayables, patientsCount] =
       await Promise.all([
@@ -26,13 +28,17 @@ export class DashboardService {
           },
           orderBy: { startsAt: "asc" },
         }),
-        this.prisma.accountReceivable.findMany({
-          where: { status: { in: ["ABERTO", "PARCIAL", "VENCIDO"] } },
-        }),
-        this.prisma.accountPayable.findMany({
-          where: { status: { in: ["ABERTO", "PARCIAL", "VENCIDO"] } },
-        }),
-        this.prisma.patient.count(),
+        canSeeFinance
+          ? this.prisma.accountReceivable.findMany({
+              where: { status: { in: ["ABERTO", "PARCIAL", "VENCIDO"] } },
+            })
+          : Promise.resolve([]),
+        canSeeFinance && role === "ADMIN"
+          ? this.prisma.accountPayable.findMany({
+              where: { status: { in: ["ABERTO", "PARCIAL", "VENCIDO"] } },
+            })
+          : Promise.resolve([]),
+        this.prisma.patient.count({ where: { active: true } }),
       ]);
 
     const receberAberto = openReceivables.reduce((s, r) => s + (r.amountCents - r.paidCents), 0);
@@ -42,10 +48,10 @@ export class DashboardService {
       patientsCount,
       appointmentsToday,
       classesToday,
-      receberAbertoCents: receberAberto,
-      pagarAbertoCents: pagarAberto,
-      openReceivablesCount: openReceivables.length,
-      openPayablesCount: openPayables.length,
+      receberAbertoCents: canSeeFinance ? receberAberto : null,
+      pagarAbertoCents: role === "ADMIN" ? pagarAberto : null,
+      openReceivablesCount: canSeeFinance ? openReceivables.length : null,
+      openPayablesCount: role === "ADMIN" ? openPayables.length : null,
     };
   }
 }

@@ -1,6 +1,53 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import * as bcrypt from "bcryptjs";
 import { PrismaService } from "../prisma/prisma.service";
+
+const SENSITIVE_BANK_KEYS = [
+  "accountHolder",
+  "bankName",
+  "bankAgency",
+  "bankAccount",
+  "bankAccountType",
+  "pixKey",
+  "pixKeyType",
+] as const;
+
+const ASSIGNABLE_ROLES = ["ADMIN", "RECEPCAO", "FISIOTERAPEUTA"] as const;
+type AssignableRole = (typeof ASSIGNABLE_ROLES)[number];
+
+function assertAssignableRole(role: string): asserts role is AssignableRole {
+  if (!(ASSIGNABLE_ROLES as readonly string[]).includes(role)) {
+    throw new BadRequestException("Papel inválido");
+  }
+}
+
+/** Só ADMIN define/altera papel; demais callers ficam em FISIOTERAPEUTA na criação. */
+function resolveRoleForCreate(callerRole: string, requested?: string): AssignableRole {
+  if (callerRole === "ADMIN") {
+    const role = requested || "FISIOTERAPEUTA";
+    assertAssignableRole(role);
+    return role;
+  }
+  if (requested !== undefined && requested !== "FISIOTERAPEUTA") {
+    throw new ForbiddenException("Somente ADMIN pode definir ou alterar papéis");
+  }
+  return "FISIOTERAPEUTA";
+}
+
+function resolveRoleForUpdate(callerRole: string, requested?: string): AssignableRole | undefined {
+  if (requested === undefined) return undefined;
+  assertAssignableRole(requested);
+  if (callerRole !== "ADMIN") {
+    throw new ForbiddenException("Somente ADMIN pode definir ou alterar papéis");
+  }
+  return requested;
+}
 
 /** Paleta distinta para a agenda (mesma ordem do front). */
 const AGENDA_COLORS = [
@@ -85,32 +132,57 @@ function pickProfile(data: Partial<ProfessionalInput>) {
   return out;
 }
 
+function requirePassword(password?: string) {
+  const value = (password || "").trim();
+  if (value.length < 8) {
+    throw new BadRequestException("Informe uma senha com no mínimo 8 caracteres");
+  }
+  return value;
+}
+
+function sanitizeProfessional<T extends Record<string, unknown>>(row: T, viewerRole: string) {
+  if (viewerRole === "ADMIN") return row;
+  const clone = { ...row };
+  for (const key of SENSITIVE_BANK_KEYS) {
+    delete clone[key];
+  }
+  return clone;
+}
+
 @Injectable()
 export class ProfessionalsService {
   constructor(private prisma: PrismaService) {}
 
-  async list() {
+  async list(viewerRole = "ADMIN") {
     const rows = await this.prisma.professional.findMany({
       where: { active: true },
       include: { user: { select: { email: true, role: true, active: true } } },
       orderBy: { fullName: "asc" },
     });
-    return rows.map((p) => ({
-      ...p,
-      specialties: JSON.parse(p.specialties || "[]") as string[],
-    }));
+    return rows.map((p) =>
+      sanitizeProfessional(
+        {
+          ...p,
+          specialties: JSON.parse(p.specialties || "[]") as string[],
+        },
+        viewerRole,
+      ),
+    );
   }
 
-  async get(id: string) {
+  async get(id: string, viewerRole = "ADMIN") {
     const p = await this.prisma.professional.findUnique({
       where: { id },
       include: { user: { select: { email: true, role: true, active: true } } },
     });
     if (!p || !p.active) throw new NotFoundException("Profissional não encontrado");
-    return { ...p, specialties: JSON.parse(p.specialties || "[]") };
+    return sanitizeProfessional(
+      { ...p, specialties: JSON.parse(p.specialties || "[]") },
+      viewerRole,
+    );
   }
 
-  async create(data: ProfessionalInput) {
+  async create(data: ProfessionalInput, callerRole: string) {
     const email = data.email.toLowerCase().trim();
     const exists = await this.prisma.user.findUnique({ where: { email } });
     if (exists) throw new ConflictException("Já existe usuário com este e-mail");
@@ -124,12 +196,13 @@ export class ProfessionalsService {
       data.color,
     );
 
-    const passwordHash = await bcrypt.hash(data.password || "fisio123", 10);
+    const role = resolveRoleForCreate(callerRole, data.role);
+    const passwordHash = await bcrypt.hash(requirePassword(data.password), 10);
     const user = await this.prisma.user.create({
       data: {
         email,
         passwordHash,
-        role: data.role || "FISIOTERAPEUTA",
+        role,
         professional: {
           create: {
             fullName: data.fullName,
@@ -142,23 +215,36 @@ export class ProfessionalsService {
       },
       include: { professional: true },
     });
-    return {
-      ...user.professional!,
-      specialties: JSON.parse(user.professional!.specialties || "[]"),
-      user: { email: user.email, role: user.role },
-    };
+    return sanitizeProfessional(
+      {
+        ...user.professional!,
+        specialties: JSON.parse(user.professional!.specialties || "[]"),
+        user: { email: user.email, role: user.role },
+      },
+      callerRole,
+    );
   }
 
-  async update(id: string, data: Partial<ProfessionalInput>) {
-    const current = await this.get(id);
+  async update(id: string, data: Partial<ProfessionalInput>, callerRole: string) {
+    const current = await this.get(id, "ADMIN");
 
     if (data.email) {
       const email = data.email.toLowerCase().trim();
       const exists = await this.prisma.user.findFirst({
-        where: { email, NOT: { id: current.userId } },
+        where: { email, NOT: { id: current.userId as string } },
       });
       if (exists) throw new ConflictException("Já existe usuário com este e-mail");
     }
+
+    // Dados bancários só ADMIN altera
+    const profile =
+      callerRole === "ADMIN"
+        ? pickProfile(data)
+        : (() => {
+            const copy = { ...data } as Partial<ProfessionalInput>;
+            for (const key of SENSITIVE_BANK_KEYS) delete copy[key];
+            return pickProfile(copy);
+          })();
 
     await this.prisma.professional.update({
       where: { id },
@@ -169,42 +255,52 @@ export class ProfessionalsService {
           ? { specialties: JSON.stringify(data.specialties) }
           : {}),
         ...(data.color !== undefined ? { color: data.color || "#585E45" } : {}),
-        ...pickProfile(data),
+        ...profile,
       },
     });
 
+    const nextRole = resolveRoleForUpdate(callerRole, data.role);
     const userData: { email?: string; role?: string; passwordHash?: string } = {};
     if (data.email) userData.email = data.email.toLowerCase().trim();
-    if (data.role) userData.role = data.role;
-    if (data.password && data.password.length >= 6) {
-      userData.passwordHash = await bcrypt.hash(data.password, 10);
+    if (nextRole !== undefined) userData.role = nextRole;
+    if (data.password) {
+      userData.passwordHash = await bcrypt.hash(requirePassword(data.password), 10);
     }
     if (Object.keys(userData).length) {
-      await this.prisma.user.update({ where: { id: current.userId }, data: userData });
+      await this.prisma.user.update({
+        where: { id: current.userId as string },
+        data: userData,
+      });
     }
 
-    return this.get(id);
+    return this.get(id, callerRole);
   }
 
   async remove(id: string) {
-    const current = await this.get(id);
+    const current = await this.get(id, "ADMIN");
     await this.prisma.$transaction([
       this.prisma.professional.update({ where: { id }, data: { active: false } }),
-      this.prisma.user.update({ where: { id: current.userId }, data: { active: false } }),
+      this.prisma.user.update({
+        where: { id: current.userId as string },
+        data: { active: false },
+      }),
     ]);
     return { ok: true };
   }
 
-  async updatePhoto(id: string, photoUrl: string) {
-    await this.get(id);
+  async updatePhoto(id: string, photoUrl: string, viewerRole = "ADMIN") {
+    await this.get(id, "ADMIN");
     const updated = await this.prisma.professional.update({
       where: { id },
       data: { photoUrl },
       include: { user: { select: { email: true, role: true, active: true } } },
     });
-    return {
-      ...updated,
-      specialties: JSON.parse(updated.specialties || "[]") as string[],
-    };
+    return sanitizeProfessional(
+      {
+        ...updated,
+        specialties: JSON.parse(updated.specialties || "[]") as string[],
+      },
+      viewerRole,
+    );
   }
 }

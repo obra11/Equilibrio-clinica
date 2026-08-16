@@ -5,12 +5,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { BrandLogo } from "@/components/BrandLogo";
 import { clearSession, getStoredUser } from "@/lib/api";
 
-const links = [
+const allLinks = [
   { href: "/dashboard", label: "Início" },
   { href: "/pacientes", label: "Pacientes" },
   { href: "/agenda", label: "Agenda" },
   { href: "/pilates", label: "Pilates" },
-  { href: "/financeiro", label: "Financeiro" },
+  { href: "/financeiro", label: "Financeiro", roles: ["ADMIN", "RECEPCAO"] },
   { href: "/equipe", label: "Equipe" },
 ];
 
@@ -18,6 +18,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const user = getStoredUser();
+  const links = allLinks.filter(
+    (l) => !("roles" in l) || !l.roles || (user?.role && l.roles.includes(user.role)),
+  );
 
   function logout() {
     clearSession();

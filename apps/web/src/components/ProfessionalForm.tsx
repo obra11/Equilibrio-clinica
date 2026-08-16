@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { formatCep } from "@/components/PatientForm";
+import { getStoredUser } from "@/lib/api";
 import {
   DEFAULT_PROFESSIONAL_COLOR,
   PROFESSIONAL_COLORS,
@@ -74,6 +75,9 @@ export function ProfessionalForm({
   onSubmit,
   onCancel,
 }: Props) {
+  const viewerRole = getStoredUser()?.role;
+  const canAssignRoles = viewerRole === "ADMIN";
+  const canEditBank = viewerRole === "ADMIN";
   const [form, setForm] = useState<ProfessionalFormValues>({
     ...emptyProfessionalForm,
     ...initial,
@@ -138,8 +142,8 @@ export function ProfessionalForm({
             value={form.password}
             onChange={(e) => setField("password", e.target.value)}
             required={passwordRequired}
-            minLength={passwordRequired ? 6 : undefined}
-            placeholder={passwordRequired ? "Mín. 6 caracteres" : "Deixe em branco para manter"}
+            minLength={passwordRequired ? 8 : undefined}
+            placeholder={passwordRequired ? "Mín. 8 caracteres" : "Deixe em branco para manter"}
           />
         </div>
       </div>
@@ -180,10 +184,20 @@ export function ProfessionalForm({
             className="eq-input"
             value={form.role}
             onChange={(e) => setField("role", e.target.value)}
+            disabled={!canAssignRoles}
+            title={
+              canAssignRoles
+                ? undefined
+                : "Somente ADMIN pode definir ou alterar papéis"
+            }
           >
             <option value="FISIOTERAPEUTA">Fisioterapeuta</option>
-            <option value="RECEPCAO">Recepção</option>
-            <option value="ADMIN">Admin</option>
+            {canAssignRoles || form.role === "RECEPCAO" ? (
+              <option value="RECEPCAO">Recepção</option>
+            ) : null}
+            {canAssignRoles || form.role === "ADMIN" ? (
+              <option value="ADMIN">Admin</option>
+            ) : null}
           </select>
         </div>
       </div>
@@ -303,88 +317,90 @@ export function ProfessionalForm({
         </div>
       </div>
 
-      <div className="border-t border-borderEq pt-3">
-        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gold">
-          Dados bancários
-        </p>
-        <p className="mb-3 text-xs text-olive-muted">
-          Usados no financeiro da clínica para repasses e contas a pagar ao profissional.
-        </p>
-        <div>
-          <label className="eq-label">Titular da conta</label>
-          <input
-            className="eq-input"
-            value={form.accountHolder}
-            onChange={(e) => setField("accountHolder", e.target.value)}
-            placeholder="Nome como no banco"
-          />
-        </div>
-        <div className="mt-3 grid grid-cols-2 gap-3">
+      {canEditBank ? (
+        <div className="border-t border-borderEq pt-3">
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gold">
+            Dados bancários
+          </p>
+          <p className="mb-3 text-xs text-olive-muted">
+            Usados no financeiro da clínica para repasses e contas a pagar ao profissional.
+          </p>
           <div>
-            <label className="eq-label">Banco</label>
+            <label className="eq-label">Titular da conta</label>
             <input
               className="eq-input"
-              value={form.bankName}
-              onChange={(e) => setField("bankName", e.target.value)}
-              placeholder="Ex.: Nubank, Itaú"
+              value={form.accountHolder}
+              onChange={(e) => setField("accountHolder", e.target.value)}
+              placeholder="Nome como no banco"
             />
           </div>
-          <div>
-            <label className="eq-label">Tipo de conta</label>
-            <select
-              className="eq-input"
-              value={form.bankAccountType}
-              onChange={(e) => setField("bankAccountType", e.target.value)}
-            >
-              <option value="CORRENTE">Corrente</option>
-              <option value="POUPANCA">Poupança</option>
-              <option value="PAGAMENTO">Pagamento</option>
-            </select>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div>
+              <label className="eq-label">Banco</label>
+              <input
+                className="eq-input"
+                value={form.bankName}
+                onChange={(e) => setField("bankName", e.target.value)}
+                placeholder="Ex.: Nubank, Itaú"
+              />
+            </div>
+            <div>
+              <label className="eq-label">Tipo de conta</label>
+              <select
+                className="eq-input"
+                value={form.bankAccountType}
+                onChange={(e) => setField("bankAccountType", e.target.value)}
+              >
+                <option value="CORRENTE">Corrente</option>
+                <option value="POUPANCA">Poupança</option>
+                <option value="PAGAMENTO">Pagamento</option>
+              </select>
+            </div>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div>
+              <label className="eq-label">Agência</label>
+              <input
+                className="eq-input"
+                value={form.bankAgency}
+                onChange={(e) => setField("bankAgency", e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="eq-label">Conta</label>
+              <input
+                className="eq-input"
+                value={form.bankAccount}
+                onChange={(e) => setField("bankAccount", e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="mt-3 grid grid-cols-[140px_1fr] gap-3">
+            <div>
+              <label className="eq-label">Tipo PIX</label>
+              <select
+                className="eq-input"
+                value={form.pixKeyType}
+                onChange={(e) => setField("pixKeyType", e.target.value)}
+              >
+                <option value="CPF">CPF</option>
+                <option value="CNPJ">CNPJ</option>
+                <option value="EMAIL">E-mail</option>
+                <option value="TELEFONE">Telefone</option>
+                <option value="ALEATORIA">Aleatória</option>
+              </select>
+            </div>
+            <div>
+              <label className="eq-label">Chave PIX</label>
+              <input
+                className="eq-input"
+                value={form.pixKey}
+                onChange={(e) => setField("pixKey", e.target.value)}
+              />
+            </div>
           </div>
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <div>
-            <label className="eq-label">Agência</label>
-            <input
-              className="eq-input"
-              value={form.bankAgency}
-              onChange={(e) => setField("bankAgency", e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="eq-label">Conta</label>
-            <input
-              className="eq-input"
-              value={form.bankAccount}
-              onChange={(e) => setField("bankAccount", e.target.value)}
-            />
-          </div>
-        </div>
-        <div className="mt-3 grid grid-cols-[140px_1fr] gap-3">
-          <div>
-            <label className="eq-label">Tipo PIX</label>
-            <select
-              className="eq-input"
-              value={form.pixKeyType}
-              onChange={(e) => setField("pixKeyType", e.target.value)}
-            >
-              <option value="CPF">CPF</option>
-              <option value="CNPJ">CNPJ</option>
-              <option value="EMAIL">E-mail</option>
-              <option value="TELEFONE">Telefone</option>
-              <option value="ALEATORIA">Aleatória</option>
-            </select>
-          </div>
-          <div>
-            <label className="eq-label">Chave PIX</label>
-            <input
-              className="eq-input"
-              value={form.pixKey}
-              onChange={(e) => setField("pixKey", e.target.value)}
-            />
-          </div>
-        </div>
-      </div>
+      ) : null}
 
       <div className="flex flex-wrap gap-2 pt-2">
         <button className="eq-btn" disabled={loading}>
@@ -403,6 +419,9 @@ export function ProfessionalForm({
 
 /** Payload helpers for create/update API */
 export function professionalPayload(values: ProfessionalFormValues & { specialties: string[] }) {
+  const role = getStoredUser()?.role;
+  const canAssignRoles = role === "ADMIN";
+  const canEditBank = role === "ADMIN";
   return {
     fullName: values.fullName,
     email: values.email,
@@ -410,7 +429,7 @@ export function professionalPayload(values: ProfessionalFormValues & { specialti
     crefito: values.crefito || null,
     specialties: values.specialties,
     color: values.color,
-    role: values.role,
+    ...(canAssignRoles ? { role: values.role } : {}),
     phone: values.phone || null,
     whatsapp: values.whatsapp || null,
     zipCode: values.zipCode || null,
@@ -420,12 +439,16 @@ export function professionalPayload(values: ProfessionalFormValues & { specialti
     neighborhood: values.neighborhood || null,
     city: values.city || null,
     state: values.state || null,
-    accountHolder: values.accountHolder || null,
-    bankName: values.bankName || null,
-    bankAgency: values.bankAgency || null,
-    bankAccount: values.bankAccount || null,
-    bankAccountType: values.bankAccountType || null,
-    pixKey: values.pixKey || null,
-    pixKeyType: values.pixKeyType || null,
+    ...(canEditBank
+      ? {
+          accountHolder: values.accountHolder || null,
+          bankName: values.bankName || null,
+          bankAgency: values.bankAgency || null,
+          bankAccount: values.bankAccount || null,
+          bankAccountType: values.bankAccountType || null,
+          pixKey: values.pixKey || null,
+          pixKeyType: values.pixKeyType || null,
+        }
+      : {}),
   };
 }

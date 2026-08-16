@@ -7,8 +7,8 @@ import { api, setSession, AuthUser } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("admin@equilibrio.fisio.br");
-  const [password, setPassword] = useState("admin123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -45,13 +45,20 @@ export default function LoginPage() {
         </div>
         <div>
           <label className="eq-label">E-mail</label>
-          <input className="eq-input" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input
+            className="eq-input"
+            type="email"
+            autoComplete="username"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
         </div>
         <div>
           <label className="eq-label">Senha</label>
           <input
             className="eq-input"
             type="password"
+            autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
@@ -60,9 +67,6 @@ export default function LoginPage() {
         <button className="eq-btn w-full" disabled={loading}>
           {loading ? "Entrando..." : "Entrar"}
         </button>
-        <p className="text-center text-xs text-olive-muted">
-          Demo: admin@equilibrio.fisio.br / admin123
-        </p>
       </form>
     </main>
   );

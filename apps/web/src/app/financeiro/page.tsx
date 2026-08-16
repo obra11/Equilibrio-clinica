@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
-import { api, formatMoney, getToken } from "@/lib/api";
+import { api, formatMoney, getStoredUser, getToken } from "@/lib/api";
 
 type Category = { id: string; name: string; kind: string };
 
@@ -117,6 +117,8 @@ function displayStatus(status: string, dueDate: string) {
 
 export default function FinanceiroPage() {
   const router = useRouter();
+  const role = getStoredUser()?.role;
+  const canSeePayables = role === "ADMIN";
   const [tab, setTab] = useState<Tab>("dashboard");
   const [listFilter, setListFilter] = useState<ListFilter>("abertos");
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
@@ -146,7 +148,7 @@ export default function FinanceiroPage() {
       const [dash, r, p, pats, pros, cats] = await Promise.all([
         api<Dashboard>("/finance/dashboard"),
         api<Receivable[]>("/finance/receivables"),
-        api<Payable[]>("/finance/payables"),
+        canSeePayables ? api<Payable[]>("/finance/payables") : Promise.resolve([] as Payable[]),
         api<Patient[]>("/patients"),
         api<ProfessionalOption[]>("/professionals"),
         api<Category[]>("/finance/categories"),
@@ -174,8 +176,12 @@ export default function FinanceiroPage() {
       router.replace("/login");
       return;
     }
+    if (role !== "ADMIN" && role !== "RECEPCAO") {
+      router.replace("/dashboard");
+      return;
+    }
     load().catch((e) => setError(e.message));
-  }, [router]);
+  }, [router, role]);
 
   const filteredReceivables = useMemo(() => {
     const todayStart = startOfToday();
@@ -332,7 +338,7 @@ export default function FinanceiroPage() {
           [
             ["dashboard", "Dashboard"],
             ["receber", "A receber"],
-            ["pagar", "A pagar"],
+            ...(canSeePayables ? ([["pagar", "A pagar"]] as Array<[Tab, string]>) : []),
           ] as Array<[Tab, string]>
         ).map(([key, label]) => (
           <button

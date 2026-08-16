@@ -7,8 +7,8 @@ import { api, formatDateTime, formatMoney, getToken } from "@/lib/api";
 
 type Summary = {
   patientsCount: number;
-  receberAbertoCents: number;
-  pagarAbertoCents: number;
+  receberAbertoCents: number | null;
+  pagarAbertoCents: number | null;
   appointmentsToday: Array<{
     id: string;
     startsAt: string;
@@ -60,18 +60,22 @@ export default function DashboardPage() {
               <p className="eq-label">Pacientes</p>
               <p className="font-display text-3xl text-olive">{data.patientsCount}</p>
             </div>
-            <div className="eq-card">
-              <p className="eq-label">A receber</p>
-              <p className="font-display text-3xl text-olive">
-                {formatMoney(data.receberAbertoCents)}
-              </p>
-            </div>
-            <div className="eq-card">
-              <p className="eq-label">A pagar</p>
-              <p className="font-display text-3xl text-olive">
-                {formatMoney(data.pagarAbertoCents)}
-              </p>
-            </div>
+            {data.receberAbertoCents !== null ? (
+              <div className="eq-card">
+                <p className="eq-label">A receber</p>
+                <p className="font-display text-3xl text-olive">
+                  {formatMoney(data.receberAbertoCents)}
+                </p>
+              </div>
+            ) : null}
+            {data.pagarAbertoCents !== null ? (
+              <div className="eq-card">
+                <p className="eq-label">A pagar</p>
+                <p className="font-display text-3xl text-olive">
+                  {formatMoney(data.pagarAbertoCents)}
+                </p>
+              </div>
+            ) : null}
           </div>
 
           <div className="grid gap-6 lg:grid-cols-2">
