@@ -55,6 +55,9 @@ export default function AulaPilatesPage() {
       capacity: String(cls.capacity),
       startsAt: toLocalInput(new Date(cls.startsAt)),
       notes: cls.notes || "",
+      weekdays: [],
+      weeksCount: "8",
+      repeatUntil: "",
     });
     setPatients(pats);
     if (!enrollPatientId && pats[0]) setEnrollPatientId(pats[0].id);

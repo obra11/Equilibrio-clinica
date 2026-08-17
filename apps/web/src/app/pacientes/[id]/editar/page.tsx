@@ -61,16 +61,18 @@ export default function EditarPacientePage() {
           notes: data.notes || "",
           isParticular: data.isParticular,
           insuranceName: data.insuranceName || "",
+          sendWelcomeWhatsapp: false,
         });
       })
       .catch((e) => setError(e.message));
   }, [id, router]);
 
   async function onSubmit(values: PatientFormValues) {
+    const { sendWelcomeWhatsapp: _welcome, ...patientFields } = values;
     await api(`/patients/${id}`, {
       method: "PATCH",
       body: JSON.stringify({
-        ...values,
+        ...patientFields,
         email: values.email || null,
         birthDate: values.birthDate || null,
         insuranceName: values.isParticular ? null : values.insuranceName || null,

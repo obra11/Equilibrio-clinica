@@ -46,15 +46,15 @@ type Props = {
   submitLabel?: string;
   /** Mostra dias da semana e repetição (nova turma) */
   allowRecurrence?: boolean;
-  onSubmit: (
-    values: ClassFormValues & {
-      endsAt: string;
-      weekdays: number[];
-      weeksCount?: number;
-      repeatUntil?: string | null;
-    },
-  ) => Promise<void>;
+  onSubmit: (values: ClassSubmitValues) => Promise<void>;
   onCancel?: () => void;
+};
+
+export type ClassSubmitValues = Omit<ClassFormValues, "weeksCount" | "repeatUntil"> & {
+  endsAt: string;
+  weekdays: number[];
+  weeksCount?: number;
+  repeatUntil?: string | null;
 };
 
 export function toLocalInput(d: Date) {
