@@ -1,8 +1,8 @@
 # Serviço Web — Config File Path: /railway.web.toml
-# Também defina a variável: RAILWAY_DOCKERFILE_PATH=Dockerfile.web
+# Variável extra (recomendado): RAILWAY_DOCKERFILE_PATH=Dockerfile
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile.web"
+dockerfilePath = "Dockerfile"
 
 [deploy]
 startCommand = "npm run start:web"
