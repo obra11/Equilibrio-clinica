@@ -1,13 +1,12 @@
-# Serviço Web (Next.js)
-# No Railway → balanced-endurance → Settings → Config-as-code
-# Config File Path = railway.web.toml
+# Serviço Web (Next.js) — balanced-endurance
+# Settings → Config-as-code → Config File Path = railway.web.toml
 #
-# Variable obrigatória:
+# Variable (também no Build, se a UI tiver "Available at Build Time"):
 #   NEXT_PUBLIC_API_URL=https://equilibrio-clinica-production.up.railway.app/api
 
 [build]
-builder = "NIXPACKS"
-buildCommand = "npm run build:web"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.web"
 
 [deploy]
 startCommand = "npm run start:web"
