@@ -1,3 +1,4 @@
+# Usado pelo serviço Web (Nixpacks). A API usa Dockerfile via railway.toml.
 [phases.setup]
 nixPkgs = ["openssl"]
 
@@ -7,9 +8,3 @@ NIXPACKS_NODE_VERSION = "20"
 
 [phases.install]
 cmds = ["npm ci"]
-
-[phases.build]
-cmds = ["npm run build:api"]
-
-[start]
-cmd = "npm run start:api"

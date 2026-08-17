@@ -1,10 +1,9 @@
-# Serviço Web na Railway
-# No painel, use este arquivo OU configure Build/Start manualmente:
-#   Build: npm run build:web
-#   Start: npm run start:web
+# Serviço Web (Next.js)
+# No Railway → balanced-endurance → Settings → Config-as-code
+# Config File Path = railway.web.toml
 #
-# Variáveis:
-#   NEXT_PUBLIC_API_URL=https://<api>.up.railway.app/api
+# Variable obrigatória:
+#   NEXT_PUBLIC_API_URL=https://equilibrio-clinica-production.up.railway.app/api
 
 [build]
 builder = "NIXPACKS"
