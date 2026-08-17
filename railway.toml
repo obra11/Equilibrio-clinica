@@ -1,7 +1,7 @@
-# Serviço API (padrão deste Dockerfile)
+# Serviço API — Config File Path padrão: railway.toml
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
+dockerfilePath = "Dockerfile.api"
 
 [deploy]
 startCommand = "npm run start:api"
