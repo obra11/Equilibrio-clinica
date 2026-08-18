@@ -41,10 +41,7 @@ async function main() {
     data: {
       email: "liz@equilibrio.fisio.br",
       passwordHash: await bcrypt.hash("fisio123", 10),
-      role: "FISIOTERAPEUTA",
-      professional: {
-        create: {
-          fullName: "Lizandra Gorski",
+      role: "ADMIN",
           crefito: "Resp. Técnica",
           specialties: JSON.stringify([
             "Fisioterapia",
@@ -200,9 +197,9 @@ async function main() {
 
   console.log("Seed OK");
   console.log("Admin: admin@equilibrio.fisio.br / admin123");
+  console.log("Admin (Liz): liz@equilibrio.fisio.br / fisio123");
   console.log("Recepção: recepcao@equilibrio.fisio.br / recepcao123");
-  console.log("Fisio: liz@equilibrio.fisio.br / fisio123");
-  console.log("Users:", admin.email, mirele.email, jose.email);
+  console.log("Users:", admin.email, lizandra.email, mirele.email, jose.email);
 }
 
 main()
