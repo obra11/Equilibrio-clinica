@@ -19,10 +19,12 @@ RUN npm run build:web
 FROM base AS runner
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
 WORKDIR /app
 COPY --from=build /app/package.json /app/package-lock.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/apps ./apps
 COPY --from=build /app/packages ./packages
 EXPOSE 3000
+# Railway injeta PORT; Next escuta nela com --hostname 0.0.0.0
 CMD ["npm", "run", "start:web"]
