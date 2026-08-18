@@ -39,7 +39,7 @@ async function main() {
 
   const lizandra = await prisma.user.create({
     data: {
-      email: "lizandra@equilibrio.fisio.br",
+      email: "liz@equilibrio.fisio.br",
       passwordHash: await bcrypt.hash("fisio123", 10),
       role: "FISIOTERAPEUTA",
       professional: {
@@ -201,7 +201,7 @@ async function main() {
   console.log("Seed OK");
   console.log("Admin: admin@equilibrio.fisio.br / admin123");
   console.log("Recepção: recepcao@equilibrio.fisio.br / recepcao123");
-  console.log("Fisio: lizandra@equilibrio.fisio.br / fisio123");
+  console.log("Fisio: liz@equilibrio.fisio.br / fisio123");
   console.log("Users:", admin.email, mirele.email, jose.email);
 }
 
