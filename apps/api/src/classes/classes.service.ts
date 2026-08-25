@@ -341,6 +341,42 @@ export class ClassesService {
     if (active.length >= session.capacity && status === "CONFIRMADO") {
       throw new BadRequestException("Turma lotada — use lista de espera");
     }
+
+    if (status === "CONFIRMADO" || status === "PRESENTE") {
+      const apptConflict = await this.prisma.appointment.findFirst({
+        where: {
+          patientId,
+          status: { not: "CANCELADO" },
+          startsAt: { lt: session.endsAt },
+          endsAt: { gt: session.startsAt },
+        },
+        include: { patient: true },
+      });
+      if (apptConflict) {
+        throw new BadRequestException(
+          `Conflito: ${apptConflict.patient.fullName} já tem atendimento neste horário.`,
+        );
+      }
+
+      const otherClass = await this.prisma.classEnrollment.findFirst({
+        where: {
+          patientId,
+          status: { in: ["CONFIRMADO", "PRESENTE"] },
+          classSessionId: { not: classSessionId },
+          classSession: {
+            startsAt: { lt: session.endsAt },
+            endsAt: { gt: session.startsAt },
+          },
+        },
+        include: { patient: true },
+      });
+      if (otherClass) {
+        throw new BadRequestException(
+          `Conflito: ${otherClass.patient.fullName} já está em outra aula neste horário.`,
+        );
+      }
+    }
+
     return this.prisma.classEnrollment.upsert({
       where: { classSessionId_patientId: { classSessionId, patientId } },
       create: { classSessionId, patientId, status },

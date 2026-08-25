@@ -35,10 +35,52 @@ export class AppointmentsService {
     professionalId: string,
     startsAt: Date,
     endsAt: Date,
-    options?: { roomId?: string | null; excludeId?: string },
+    options?: { roomId?: string | null; patientId?: string; excludeId?: string },
   ) {
     const excludeId = options?.excludeId;
     const roomId = options?.roomId?.trim() || null;
+    const patientId = options?.patientId?.trim() || null;
+
+    if (patientId) {
+      const patientConflict = await this.prisma.appointment.findFirst({
+        where: {
+          patientId,
+          status: { not: "CANCELADO" },
+          ...(excludeId ? { id: { not: excludeId } } : {}),
+          startsAt: { lt: endsAt },
+          endsAt: { gt: startsAt },
+        },
+        include: { patient: true },
+      });
+      if (patientConflict) {
+        const when = patientConflict.startsAt.toLocaleString("pt-BR", {
+          day: "2-digit",
+          month: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        throw new BadRequestException(
+          `Conflito: ${patientConflict.patient.fullName} já tem outro compromisso em ${when}. Não é permitido agendar o mesmo paciente no mesmo horário.`,
+        );
+      }
+
+      const patientClassConflict = await this.prisma.classEnrollment.findFirst({
+        where: {
+          patientId,
+          status: { in: ["CONFIRMADO", "PRESENTE"] },
+          classSession: {
+            startsAt: { lt: endsAt },
+            endsAt: { gt: startsAt },
+          },
+        },
+        include: { patient: true, classSession: true },
+      });
+      if (patientClassConflict) {
+        throw new BadRequestException(
+          `Conflito: ${patientClassConflict.patient.fullName} já está em aula de Pilates neste horário.`,
+        );
+      }
+    }
 
     const professionalConflict = await this.prisma.appointment.findFirst({
       where: {
@@ -219,7 +261,10 @@ export class AppointmentsService {
     const endsAt = new Date(data.endsAt);
     if (endsAt <= startsAt) throw new BadRequestException("Horário inválido");
     const roomId = data.roomId || null;
-    await this.assertNoConflict(data.professionalId, startsAt, endsAt, { roomId });
+    await this.assertNoConflict(data.professionalId, startsAt, endsAt, {
+      roomId,
+      patientId: data.patientId,
+    });
 
     const service = await this.prisma.serviceType.findUnique({ where: { id: data.serviceTypeId } });
     if (!service) throw new BadRequestException("Serviço inválido");
@@ -317,6 +362,7 @@ export class AppointmentsService {
     if (status !== "CANCELADO") {
       await this.assertNoConflict(professionalId, startsAt, endsAt, {
         roomId,
+        patientId,
         excludeId: id,
       });
     }
