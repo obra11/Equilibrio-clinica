@@ -26,3 +26,5 @@ RUN mkdir -p /data/uploads
 ENV UPLOADS_DIR=/data/uploads
 EXPOSE 3001
 CMD ["npm", "run", "start:api"]
+
+# force redeploy 2026-08-25T20:22:59.7899675-03:00
