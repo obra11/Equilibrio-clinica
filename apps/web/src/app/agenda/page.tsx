@@ -114,6 +114,7 @@ export default function AgendaPage() {
     billingType: "AVULSA",
   });
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const individualServices = useMemo(() => services.filter((s) => !s.isGroup), [services]);
 
@@ -283,6 +284,26 @@ export default function AgendaPage() {
       setError(err instanceof Error ? err.message : "Erro ao salvar agendamento");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function onDelete() {
+    if (!selected) return;
+    const ok = window.confirm(
+      `Excluir o agendamento de ${selected.patient.fullName}?\nEle sairá da agenda.`,
+    );
+    if (!ok) return;
+    setDeleting(true);
+    setError("");
+    try {
+      await api(`/appointments/${selected.id}`, { method: "DELETE" });
+      setModalOpen(false);
+      setSelected(null);
+      await loadAppointments();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao excluir agendamento");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -750,13 +771,23 @@ export default function AgendaPage() {
                 </div>
               ) : null}
               {error ? <p className="text-sm text-red-700">{error}</p> : null}
-              <button className="eq-btn w-full" disabled={saving}>
+              <button className="eq-btn w-full" disabled={saving || deleting}>
                 {saving
                   ? "Salvando..."
                   : selected
                     ? "Salvar alterações"
                     : "Confirmar agendamento"}
               </button>
+              {selected ? (
+                <button
+                  type="button"
+                  className="w-full rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm font-medium text-red-800 hover:bg-red-100 disabled:opacity-60"
+                  disabled={saving || deleting}
+                  onClick={onDelete}
+                >
+                  {deleting ? "Excluindo..." : "Excluir agendamento"}
+                </button>
+              ) : null}
             </form>
           </div>
         </div>

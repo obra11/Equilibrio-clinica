@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -41,5 +42,11 @@ export class AppointmentsController {
   @Patch(":id/status")
   status(@Param("id") id: string, @Body() body: { status: string }) {
     return this.appointments.updateStatus(id, body.status);
+  }
+
+  @Roles("ADMIN", "RECEPCAO")
+  @Delete(":id")
+  remove(@Param("id") id: string) {
+    return this.appointments.remove(id);
   }
 }

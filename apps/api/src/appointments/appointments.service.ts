@@ -379,4 +379,15 @@ export class AppointmentsService {
   async updateStatus(id: string, status: string) {
     return this.update(id, { status });
   }
+
+  /** Exclui o agendamento da agenda (marca como CANCELADO e fecha título aberto). */
+  async remove(id: string) {
+    const current = await this.prisma.appointment.findUnique({ where: { id } });
+    if (!current) throw new NotFoundException("Agendamento não encontrado");
+    if (current.status === "CANCELADO") {
+      return { ok: true, id, status: "CANCELADO" };
+    }
+    await this.update(id, { status: "CANCELADO" });
+    return { ok: true, id, status: "CANCELADO" };
+  }
 }
