@@ -42,6 +42,9 @@ async function main() {
       email: "liz@equilibrio.fisio.br",
       passwordHash: await bcrypt.hash("fisio123", 10),
       role: "ADMIN",
+      professional: {
+        create: {
+          fullName: "Lizandra Gorski",
           crefito: "Resp. Técnica",
           specialties: JSON.stringify([
             "Fisioterapia",
