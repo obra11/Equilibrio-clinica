@@ -296,7 +296,20 @@ export default function AgendaPage() {
     setDeleting(true);
     setError("");
     try {
-      await api(`/appointments/${selected.id}`, { method: "DELETE" });
+      // Prefer DELETE; fallback PATCH CANCELADO se a API ainda não tiver a rota
+      try {
+        await api(`/appointments/${selected.id}`, { method: "DELETE" });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "";
+        if (/Cannot DELETE|Not Found|404/i.test(msg)) {
+          await api(`/appointments/${selected.id}`, {
+            method: "PATCH",
+            body: JSON.stringify({ status: "CANCELADO" }),
+          });
+        } else {
+          throw err;
+        }
+      }
       setModalOpen(false);
       setSelected(null);
       await loadAppointments();
