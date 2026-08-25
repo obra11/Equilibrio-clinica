@@ -13,3 +13,8 @@ uploads
 apps/api/uploads
 .cursor
 *.pem
+
+desktop.ini
+Thumbs.db
+*.crdownload
+
