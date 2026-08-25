@@ -47,6 +47,79 @@ function generateOccurrences(
 export class ClassesService {
   constructor(private prisma: PrismaService) {}
 
+  private async assertNoScheduleConflict(params: {
+    professionalId: string;
+    roomId?: string | null;
+    startsAt: Date;
+    endsAt: Date;
+    excludeClassId?: string;
+  }) {
+    const { professionalId, startsAt, endsAt, excludeClassId } = params;
+    const roomId = params.roomId?.trim() || null;
+
+    const apptPro = await this.prisma.appointment.findFirst({
+      where: {
+        professionalId,
+        status: { not: "CANCELADO" },
+        startsAt: { lt: endsAt },
+        endsAt: { gt: startsAt },
+      },
+      include: { professional: true },
+    });
+    if (apptPro) {
+      throw new BadRequestException(
+        `Conflito: ${apptPro.professional.fullName} já tem atendimento neste horário.`,
+      );
+    }
+
+    const classPro = await this.prisma.classSession.findFirst({
+      where: {
+        professionalId,
+        ...(excludeClassId ? { id: { not: excludeClassId } } : {}),
+        startsAt: { lt: endsAt },
+        endsAt: { gt: startsAt },
+      },
+      include: { professional: true },
+    });
+    if (classPro) {
+      throw new BadRequestException(
+        `Conflito: ${classPro.professional.fullName} já tem outra aula neste horário.`,
+      );
+    }
+
+    if (roomId) {
+      const apptRoom = await this.prisma.appointment.findFirst({
+        where: {
+          roomId,
+          status: { not: "CANCELADO" },
+          startsAt: { lt: endsAt },
+          endsAt: { gt: startsAt },
+        },
+        include: { room: true },
+      });
+      if (apptRoom) {
+        throw new BadRequestException(
+          `Conflito: a sala ${apptRoom.room?.name || ""} já tem atendimento neste horário.`,
+        );
+      }
+
+      const classRoom = await this.prisma.classSession.findFirst({
+        where: {
+          roomId,
+          ...(excludeClassId ? { id: { not: excludeClassId } } : {}),
+          startsAt: { lt: endsAt },
+          endsAt: { gt: startsAt },
+        },
+        include: { room: true },
+      });
+      if (classRoom) {
+        throw new BadRequestException(
+          `Conflito: a sala ${classRoom.room?.name || ""} já tem outra aula neste horário.`,
+        );
+      }
+    }
+  }
+
   list(params: { from?: string; to?: string }) {
     const from = params.from ? new Date(params.from) : undefined;
     const to = params.to ? new Date(params.to) : undefined;
@@ -145,6 +218,16 @@ export class ClassesService {
       throw new BadRequestException("Máximo de 120 aulas por vez — reduza o período");
     }
 
+    const roomId = data.roomId || null;
+    for (const occ of occurrences) {
+      await this.assertNoScheduleConflict({
+        professionalId: data.professionalId,
+        roomId,
+        startsAt: occ.startsAt,
+        endsAt: occ.endsAt,
+      });
+    }
+
     const seriesGroupId = occurrences.length > 1 ? randomUUID() : null;
     const weekdaysJson = weekdays.length ? JSON.stringify(weekdays) : null;
 
@@ -155,7 +238,7 @@ export class ClassesService {
           title: data.title,
           professionalId: data.professionalId,
           serviceTypeId: data.serviceTypeId,
-          roomId: data.roomId || null,
+          roomId,
           capacity: data.capacity,
           startsAt: occ.startsAt,
           endsAt: occ.endsAt,
@@ -198,17 +281,33 @@ export class ClassesService {
       notes?: string | null;
     },
   ) {
-    await this.get(id);
+    const current = await this.get(id);
+    const professionalId = data.professionalId ?? current.professionalId;
+    const roomId = data.roomId !== undefined ? data.roomId || null : current.roomId;
+    const startsAt = data.startsAt ? new Date(data.startsAt) : current.startsAt;
+    const endsAt = data.endsAt ? new Date(data.endsAt) : current.endsAt;
+    if (endsAt <= startsAt) {
+      throw new BadRequestException("Horário inválido");
+    }
+
+    await this.assertNoScheduleConflict({
+      professionalId,
+      roomId,
+      startsAt,
+      endsAt,
+      excludeClassId: id,
+    });
+
     const updated = await this.prisma.classSession.update({
       where: { id },
       data: {
         ...(data.title !== undefined ? { title: data.title } : {}),
-        ...(data.professionalId !== undefined ? { professionalId: data.professionalId } : {}),
+        professionalId,
         ...(data.serviceTypeId !== undefined ? { serviceTypeId: data.serviceTypeId } : {}),
-        ...(data.roomId !== undefined ? { roomId: data.roomId || null } : {}),
+        roomId,
         ...(data.capacity !== undefined ? { capacity: data.capacity } : {}),
-        ...(data.startsAt !== undefined ? { startsAt: new Date(data.startsAt) } : {}),
-        ...(data.endsAt !== undefined ? { endsAt: new Date(data.endsAt) } : {}),
+        startsAt,
+        endsAt,
         ...(data.notes !== undefined ? { notes: data.notes || null } : {}),
       },
       include: {

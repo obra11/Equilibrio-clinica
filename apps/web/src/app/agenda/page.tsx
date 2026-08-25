@@ -590,6 +590,8 @@ export default function AgendaPage() {
                   {selected
                     ? "Altere data, horário, profissional ou status e salve"
                     : "Preencha os dados do atendimento"}
+                  {" "}
+                  O sistema bloqueia o mesmo profissional ou a mesma sala no mesmo horário.
                 </p>
               </div>
               <button
