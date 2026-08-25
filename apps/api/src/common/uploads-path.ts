@@ -11,6 +11,10 @@ export const UPLOADS_ROOT =
 
 export function ensureUploadDir(...parts: string[]) {
   const dir = join(UPLOADS_ROOT, ...parts);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  try {
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  } catch (err) {
+    console.warn(`[uploads] não foi possível criar ${dir}:`, err);
+  }
   return dir;
 }
