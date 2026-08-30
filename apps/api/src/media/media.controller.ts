@@ -12,13 +12,17 @@ import { extname, join, normalize, sep } from "path";
 import { JwtAuthGuard } from "../common/guards";
 import { UPLOADS_ROOT } from "../common/uploads-path";
 
-const ALLOWED_FOLDERS = new Set(["patients", "professionals"]);
+const ALLOWED_FOLDERS = new Set(["patients", "professionals", "classes"]);
 const CONTENT_TYPES: Record<string, string> = {
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
   ".png": "image/png",
   ".webp": "image/webp",
   ".gif": "image/gif",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".mov": "video/quicktime",
+  ".m4v": "video/mp4",
 };
 
 @UseGuards(JwtAuthGuard)

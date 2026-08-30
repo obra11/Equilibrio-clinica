@@ -2,6 +2,23 @@ import { randomUUID } from "crypto";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 
+export type LessonPlanMediaItem = {
+  url: string;
+  kind: "image" | "video";
+  name?: string;
+  createdAt: string;
+};
+
+function parseLessonMedia(raw?: string | null): LessonPlanMediaItem[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as LessonPlanMediaItem[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function parseWeekdays(weekdays?: number[] | null) {
   if (!weekdays?.length) return [] as number[];
   const unique = [...new Set(weekdays.map((d) => Number(d)).filter((d) => d >= 0 && d <= 6))];
@@ -157,6 +174,7 @@ export class ClassesService {
     return {
       ...session,
       weekdays: JSON.parse(session.weekdays || "[]") as number[],
+      lessonPlanMedia: parseLessonMedia(session.lessonPlanMedia),
     };
   }
 
@@ -324,6 +342,61 @@ export class ClassesService {
     return {
       ...updated,
       weekdays: JSON.parse(updated.weekdays || "[]") as number[],
+      lessonPlanMedia: parseLessonMedia(updated.lessonPlanMedia),
+    };
+  }
+
+  async addLessonMedia(
+    id: string,
+    item: { url: string; kind: "image" | "video"; name?: string },
+  ) {
+    const session = await this.prisma.classSession.findUnique({ where: { id } });
+    if (!session) throw new NotFoundException("Aula não encontrada");
+    const media = parseLessonMedia(session.lessonPlanMedia);
+    if (media.length >= 24) {
+      throw new BadRequestException("Máximo de 24 mídias por plano de aula");
+    }
+    media.push({
+      url: item.url,
+      kind: item.kind,
+      name: item.name,
+      createdAt: new Date().toISOString(),
+    });
+    const updated = await this.prisma.classSession.update({
+      where: { id },
+      data: { lessonPlanMedia: JSON.stringify(media) },
+      include: {
+        professional: true,
+        serviceType: true,
+        room: true,
+        enrollments: { include: { patient: true }, orderBy: { createdAt: "asc" } },
+      },
+    });
+    return {
+      ...updated,
+      weekdays: JSON.parse(updated.weekdays || "[]") as number[],
+      lessonPlanMedia: parseLessonMedia(updated.lessonPlanMedia),
+    };
+  }
+
+  async removeLessonMedia(id: string, url: string) {
+    const session = await this.prisma.classSession.findUnique({ where: { id } });
+    if (!session) throw new NotFoundException("Aula não encontrada");
+    const media = parseLessonMedia(session.lessonPlanMedia).filter((m) => m.url !== url);
+    const updated = await this.prisma.classSession.update({
+      where: { id },
+      data: { lessonPlanMedia: media.length ? JSON.stringify(media) : null },
+      include: {
+        professional: true,
+        serviceType: true,
+        room: true,
+        enrollments: { include: { patient: true }, orderBy: { createdAt: "asc" } },
+      },
+    });
+    return {
+      ...updated,
+      weekdays: JSON.parse(updated.weekdays || "[]") as number[],
+      lessonPlanMedia: parseLessonMedia(updated.lessonPlanMedia),
     };
   }
 

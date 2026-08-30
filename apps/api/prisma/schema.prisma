@@ -145,6 +145,8 @@ model ClassSession {
   notes          String?
   /// Plano de aula (exercícios, foco, sequência)
   lessonPlan     String?
+  /// Mídias do plano (JSON: [{url,kind,name,createdAt}])
+  lessonPlanMedia String?
   /// Turma recorrente: agrupa as aulas geradas
   seriesGroupId  String?
   /// Dias da semana da turma (JSON, 0=dom … 6=sáb)

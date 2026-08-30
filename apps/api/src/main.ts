@@ -11,6 +11,7 @@ async function bootstrap() {
   ensureUploadDir();
   ensureUploadDir("professionals");
   ensureUploadDir("patients");
+  ensureUploadDir("classes");
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   // Fotos só via /api/media (autenticado) — não expor /uploads estático

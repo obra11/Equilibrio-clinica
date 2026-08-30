@@ -1,11 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { ClassForm, ClassFormValues, toLocalInput } from "@/components/ClassForm";
-import { api, formatDateTime, getToken } from "@/lib/api";
+import { api, apiUpload, fetchMediaObjectUrl, formatDateTime, getToken } from "@/lib/api";
+
+type LessonMedia = {
+  url: string;
+  kind: "image" | "video";
+  name?: string;
+  createdAt: string;
+};
 
 type ClassSession = {
   id: string;
@@ -15,6 +22,7 @@ type ClassSession = {
   endsAt: string;
   notes?: string | null;
   lessonPlan?: string | null;
+  lessonPlanMedia?: LessonMedia[];
   professionalId: string;
   serviceTypeId: string;
   roomId?: string | null;
@@ -40,10 +48,16 @@ export default function AulaPilatesPage() {
   const [enrollPatientId, setEnrollPatientId] = useState("");
   const [enrollStatus, setEnrollStatus] = useState("CONFIRMADO");
   const [lessonPlan, setLessonPlan] = useState("");
+  const [media, setMedia] = useState<LessonMedia[]>([]);
+  const [mediaUrls, setMediaUrls] = useState<Record<string, string>>({});
   const [savingPlan, setSavingPlan] = useState(false);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
   const [planSaved, setPlanSaved] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const galleryRef = useRef<HTMLInputElement>(null);
+  const cameraPhotoRef = useRef<HTMLInputElement>(null);
+  const cameraVideoRef = useRef<HTMLInputElement>(null);
 
   async function load() {
     const [cls, pats] = await Promise.all([
@@ -52,6 +66,7 @@ export default function AulaPilatesPage() {
     ]);
     setSession(cls);
     setLessonPlan(cls.lessonPlan || "");
+    setMedia(cls.lessonPlanMedia || []);
     setInitial({
       title: cls.title,
       professionalId: cls.professionalId,
@@ -75,6 +90,34 @@ export default function AulaPilatesPage() {
     }
     load().catch((e) => setError(e.message));
   }, [id, router]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const entries = media.map((m) => m.url);
+    Promise.all(
+      entries.map(async (path) => {
+        const url = await fetchMediaObjectUrl(path);
+        return [path, url] as const;
+      }),
+    ).then((pairs) => {
+      if (cancelled) return;
+      const next: Record<string, string> = {};
+      for (const [path, url] of pairs) {
+        if (url) next[path] = url;
+      }
+      setMediaUrls((prev) => {
+        Object.values(prev).forEach((u) => {
+          if (u.startsWith("blob:") && !Object.values(next).includes(u)) {
+            URL.revokeObjectURL(u);
+          }
+        });
+        return next;
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [media]);
 
   async function enroll(e: FormEvent) {
     e.preventDefault();
@@ -130,6 +173,38 @@ export default function AulaPilatesPage() {
       setError(err instanceof Error ? err.message : "Erro ao salvar plano de aula");
     } finally {
       setSavingPlan(false);
+    }
+  }
+
+  async function uploadLessonFile(file: File | null | undefined) {
+    if (!file) return;
+    setUploadingMedia(true);
+    setError("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const updated = await apiUpload<ClassSession>(`/classes/${id}/media`, fd);
+      setMedia(updated.lessonPlanMedia || []);
+      setSession(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro no upload da mídia");
+    } finally {
+      setUploadingMedia(false);
+    }
+  }
+
+  async function removeMedia(url: string) {
+    if (!window.confirm("Remover esta mídia do plano de aula?")) return;
+    setError("");
+    try {
+      const updated = await api<ClassSession>(`/classes/${id}/media`, {
+        method: "DELETE",
+        body: JSON.stringify({ url }),
+      });
+      setMedia(updated.lessonPlanMedia || []);
+      setSession(updated);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao remover mídia");
     }
   }
 
@@ -197,7 +272,7 @@ export default function AulaPilatesPage() {
               <div>
                 <h2 className="font-display text-xl text-olive">Plano de aula</h2>
                 <p className="mt-1 text-sm text-olive-muted">
-                  Monte a sequência: aquecimento, exercícios, foco e observações da turma.
+                  Texto, fotos e vídeos (galeria ou câmera) para montar a sequência da turma.
                 </p>
               </div>
               <textarea
@@ -213,6 +288,131 @@ export default function AulaPilatesPage() {
 3. Fortalecimento — series of 5
 4. Alongamento e fechamento`}
               />
+
+              <div className="space-y-2">
+                <p className="eq-label">Fotos e vídeos</p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="eq-btn-ghost"
+                    disabled={uploadingMedia}
+                    onClick={() => galleryRef.current?.click()}
+                  >
+                    Galeria
+                  </button>
+                  <button
+                    type="button"
+                    className="eq-btn-ghost"
+                    disabled={uploadingMedia}
+                    onClick={() => cameraPhotoRef.current?.click()}
+                  >
+                    Tirar foto
+                  </button>
+                  <button
+                    type="button"
+                    className="eq-btn-ghost"
+                    disabled={uploadingMedia}
+                    onClick={() => cameraVideoRef.current?.click()}
+                  >
+                    Gravar vídeo
+                  </button>
+                  {uploadingMedia ? (
+                    <span className="self-center text-xs text-olive-muted">Enviando...</span>
+                  ) : null}
+                </div>
+                <input
+                  ref={galleryRef}
+                  type="file"
+                  accept="image/*,video/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    void uploadLessonFile(file);
+                  }}
+                />
+                <input
+                  ref={cameraPhotoRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    void uploadLessonFile(file);
+                  }}
+                />
+                <input
+                  ref={cameraVideoRef}
+                  type="file"
+                  accept="video/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    void uploadLessonFile(file);
+                  }}
+                />
+
+                {media.length === 0 ? (
+                  <p className="text-xs text-olive-muted">
+                    Nenhuma mídia ainda. Use galeria ou câmera do celular.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {media.map((item) => {
+                      const src = mediaUrls[item.url];
+                      return (
+                        <div
+                          key={item.url}
+                          className="overflow-hidden rounded-md border border-borderEq bg-cream/40"
+                        >
+                          {item.kind === "video" ? (
+                            src ? (
+                              <video
+                                src={src}
+                                controls
+                                className="aspect-square w-full object-cover"
+                              />
+                            ) : (
+                              <div className="flex aspect-square items-center justify-center text-xs text-olive-muted">
+                                Vídeo...
+                              </div>
+                            )
+                          ) : src ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={src}
+                              alt={item.name || "Mídia do plano"}
+                              className="aspect-square w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex aspect-square items-center justify-center text-xs text-olive-muted">
+                              Foto...
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between gap-1 px-2 py-1.5">
+                            <span className="truncate text-[11px] text-olive-muted">
+                              {item.kind === "video" ? "Vídeo" : "Foto"}
+                              {item.name ? ` · ${item.name}` : ""}
+                            </span>
+                            <button
+                              type="button"
+                              className="shrink-0 text-[11px] text-red-700 hover:underline"
+                              onClick={() => removeMedia(item.url)}
+                            >
+                              Remover
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
               {planSaved ? (
                 <p className="text-sm text-olive">Plano de aula salvo.</p>
               ) : null}
