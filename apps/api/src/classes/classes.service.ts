@@ -481,9 +481,12 @@ export class ClassesService {
       (status === "CONFIRMADO" || status === "LISTA_ESPERA" || status === "PRESENTE");
 
     if (shouldReplicate && session.seriesGroupId) {
-      // União de todos os regulares da série (não só o aluno novo) — corrige turmas antigas
-      const sync = await this.syncSeriesEnrollments(classSessionId);
-      replicated = sync.copies;
+      // Só este aluno — sync completo da turma é pelo botão "Espelhar"
+      replicated = await this.replicateEnrollmentToSeries(
+        session,
+        patientId,
+        status === "PRESENTE" ? "CONFIRMADO" : status,
+      );
     }
 
     return { ...enrollment, replicated };
@@ -617,23 +620,42 @@ export class ClassesService {
     }
 
     let copies = 0;
+    type Job = {
+      session: (typeof allSessions)[number];
+      patientId: string;
+      status: string;
+    };
+    const jobs: Job[] = [];
     for (const [patientId, status] of regulars) {
       for (const s of allSessions) {
-        copies += await this.ensureRegularOnSession(s, patientId, status);
-        // Atualiza cache em memória para capacity nas próximas iterações
-        const local = s.enrollments.find((e) => e.patientId === patientId);
-        if (local) {
-          local.status = status === "PRESENTE" ? "CONFIRMADO" : status;
-          local.isMakeup = false;
-        } else {
-          s.enrollments.push({
-            id: "tmp",
-            patientId,
-            status: status === "PRESENTE" ? "CONFIRMADO" : status,
-            isMakeup: false,
-          } as (typeof s.enrollments)[number]);
-        }
+        jobs.push({ session: s, patientId, status });
       }
+    }
+
+    const CHUNK = 8;
+    for (let i = 0; i < jobs.length; i += CHUNK) {
+      const batch = jobs.slice(i, i + CHUNK);
+      const nums = await Promise.all(
+        batch.map(async ({ session: s, patientId, status }) => {
+          const n = await this.ensureRegularOnSession(s, patientId, status);
+          if (n > 0) {
+            const local = s.enrollments.find((e) => e.patientId === patientId);
+            if (local) {
+              local.status = status === "PRESENTE" ? "CONFIRMADO" : status;
+              local.isMakeup = false;
+            } else {
+              s.enrollments.push({
+                id: `tmp-${s.id}-${patientId}`,
+                patientId,
+                status: status === "PRESENTE" ? "CONFIRMADO" : status,
+                isMakeup: false,
+              } as (typeof s.enrollments)[number]);
+            }
+          }
+          return n;
+        }),
+      );
+      copies += nums.reduce((a, b) => a + b, 0);
     }
 
     return {
@@ -669,7 +691,11 @@ export class ClassesService {
       current.classSession.seriesGroupId &&
       (status === "CONFIRMADO" || status === "LISTA_ESPERA" || status === "PRESENTE")
     ) {
-      await this.syncSeriesEnrollments(current.classSessionId);
+      await this.replicateEnrollmentToSeries(
+        current.classSession,
+        current.patientId,
+        status === "PRESENTE" ? "CONFIRMADO" : status,
+      );
     }
 
     return updated;

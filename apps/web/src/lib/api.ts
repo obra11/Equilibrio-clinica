@@ -63,13 +63,29 @@ export async function api<T>(
     ...(options.headers || {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
-  const res = await fetch(`${API_URL}${path}`, { ...options, headers });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: res.statusText }));
-    const message = Array.isArray(err.message) ? err.message.join(", ") : err.message;
-    throw new Error(message || "Erro na API");
+  const controller = new AbortController();
+  const timeoutMs = 45_000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${API_URL}${path}`, {
+      ...options,
+      headers,
+      signal: options.signal ?? controller.signal,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ message: res.statusText }));
+      const message = Array.isArray(err.message) ? err.message.join(", ") : err.message;
+      throw new Error(message || "Erro na API");
+    }
+    return res.json() as Promise<T>;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("A operação demorou demais — tente de novo em alguns segundos");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  return res.json() as Promise<T>;
 }
 
 export async function apiUpload<T>(path: string, formData: FormData): Promise<T> {

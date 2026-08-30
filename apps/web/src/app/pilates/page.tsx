@@ -140,9 +140,12 @@ export default function PilatesPage() {
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {classes.map((c) => {
+          {classes.map((c, index) => {
             const filled = filledCount(c);
             const full = filled >= c.capacity;
+            const isFirstOfSeries =
+              Boolean(c.seriesGroupId) &&
+              classes.findIndex((x) => x.seriesGroupId === c.seriesGroupId) === index;
             return (
               <article key={c.id} className="eq-card flex flex-col">
                 <div className="mb-3">
@@ -195,11 +198,11 @@ export default function PilatesPage() {
                   ) : null}
                 </ul>
                 <div className="flex flex-col gap-2 border-t border-borderEq pt-3">
-                  {c.seriesGroupId ? (
+                  {isFirstOfSeries ? (
                     <button
                       type="button"
                       className="eq-btn-ghost w-full text-xs"
-                      disabled={syncingGroupId === c.seriesGroupId}
+                      disabled={Boolean(syncingGroupId)}
                       onClick={() => void syncSeries(c)}
                     >
                       {syncingGroupId === c.seriesGroupId
@@ -217,7 +220,7 @@ export default function PilatesPage() {
                     <button
                       type="button"
                       className="flex-1 rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-700 transition hover:bg-red-50"
-                      disabled={deletingId === c.id}
+                      disabled={deletingId === c.id || Boolean(syncingGroupId)}
                       onClick={() => onDelete(c)}
                     >
                       {deletingId === c.id ? "..." : "Excluir"}

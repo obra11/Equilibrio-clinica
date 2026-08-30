@@ -775,8 +775,18 @@ export default function AgendaPage() {
       ) : null}
 
       {modalOpen ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-charcoal/40 p-4 backdrop-blur-sm">
-          <div className="eq-card max-h-[90vh] w-full max-w-lg space-y-4 overflow-y-auto shadow-xl">
+        <div
+          className="fixed inset-0 z-40 grid place-items-center bg-charcoal/40 p-4 pt-28 backdrop-blur-sm"
+          onClick={() => {
+            setModalOpen(false);
+            setSelected(null);
+            setError("");
+          }}
+        >
+          <div
+            className="eq-card max-h-[90vh] w-full max-w-lg space-y-4 overflow-y-auto shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="font-display text-2xl text-olive">

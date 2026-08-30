@@ -29,7 +29,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-borderEq bg-white/70 backdrop-blur">
+      <header className="sticky top-0 z-[60] border-b border-borderEq bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4">
           <Link href="/dashboard" className="flex items-center" aria-label="Equilíbrio — Início">
             <BrandLogo variant="header" priority />
