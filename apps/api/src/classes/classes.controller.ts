@@ -40,9 +40,9 @@ export class ClassesController {
   @Patch("enrollments/:enrollmentId")
   updateEnrollment(
     @Param("enrollmentId") enrollmentId: string,
-    @Body() body: { status: string },
+    @Body() body: { status?: string; isMakeup?: boolean },
   ) {
-    return this.classes.updateEnrollment(enrollmentId, body.status);
+    return this.classes.updateEnrollment(enrollmentId, body);
   }
 
   @Roles("ADMIN", "RECEPCAO")
@@ -131,8 +131,19 @@ export class ClassesController {
   @Post(":id/enroll")
   enroll(
     @Param("id") id: string,
-    @Body() body: { patientId: string; status?: string },
+    @Body() body: { patientId: string; status?: string; isMakeup?: boolean },
   ) {
-    return this.classes.enroll(id, body.patientId, body.status);
+    return this.classes.enroll(
+      id,
+      body.patientId,
+      body.status,
+      Boolean(body.isMakeup),
+    );
+  }
+
+  @Roles("ADMIN", "RECEPCAO")
+  @Post(":id/reminders")
+  sendReminders(@Param("id") id: string) {
+    return this.classes.sendReminders(id);
   }
 }

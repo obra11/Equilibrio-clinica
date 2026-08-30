@@ -1,6 +1,8 @@
 import { randomUUID } from "crypto";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+import { WhatsappService, normalizeBrazilWhatsApp } from "../whatsapp/whatsapp.service";
+import { EmailService } from "../email/email.service";
 
 function resolveStatus(amountCents: number, paidCents: number, current: string) {
   if (current === "CANCELADO") return "CANCELADO";
@@ -8,6 +10,20 @@ function resolveStatus(amountCents: number, paidCents: number, current: string) 
   if (paidCents >= amountCents) return "PAGO";
   return "PARCIAL";
 }
+
+function formatBRL(cents: number) {
+  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function formatDateBR(d: Date) {
+  return d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+}
+
+function firstName(fullName: string) {
+  return fullName.trim().split(/\s+/)[0] || "olá";
+}
+
+type OverdueChannel = "email" | "whatsapp";
 
 /** Soma meses preservando o dia quando possível (31/01 → 28/02). */
 function addMonths(base: Date, months: number) {
@@ -30,7 +46,11 @@ function resolveRecurrenceMonths(recurring?: boolean, recurrenceMonths?: number)
 
 @Injectable()
 export class FinanceService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private whatsapp: WhatsappService,
+    private email: EmailService,
+  ) {}
 
   listReceivables() {
     return this.prisma.accountReceivable.findMany({
@@ -218,6 +238,230 @@ export class FinanceService {
     if (!name) throw new BadRequestException("Informe o nome da categoria");
     const kind = data.kind === "PAGAR" ? "PAGAR" : "RECEBER";
     return this.prisma.category.create({ data: { name, kind } });
+  }
+
+  /** Mensagem padrão educada para cobrança de atraso. */
+  overdueReminderMessage(params: {
+    patientName: string;
+    totalCents: number;
+    items: Array<{ description: string; dueDate: Date; remainingCents: number }>;
+  }) {
+    const clinic =
+      process.env.CLINIC_NAME || "Equilíbrio Fisioterapia e Bem-Estar";
+    const name = firstName(params.patientName);
+    const lines = params.items
+      .slice(0, 8)
+      .map(
+        (i) =>
+          `• ${i.description} — vencimento ${formatDateBR(i.dueDate)} — ${formatBRL(i.remainingCents)}`,
+      );
+    const extra =
+      params.items.length > 8
+        ? `\n• … e mais ${params.items.length - 8} lançamento(s)`
+        : "";
+
+    return (
+      `Olá, ${name}.\n\n` +
+      `Esperamos que esteja bem.\n\n` +
+      `Passando para lembrar, com carinho, que há valor(es) em aberto conosco na ${clinic}, ` +
+      `totalizando ${formatBRL(params.totalCents)}:\n\n` +
+      `${lines.join("\n")}${extra}\n\n` +
+      `Se o pagamento já tiver sido efetuado, por favor desconsidere esta mensagem. ` +
+      `Caso precise de uma segunda via, renegociação ou qualquer esclarecimento, ` +
+      `é só responder — teremos prazer em ajudar.\n\n` +
+      `Agradecemos a atenção e a confiança.\n\n` +
+      `Atenciosamente,\n` +
+      `${clinic}`
+    );
+  }
+
+  private async loadOverdueByPatient(patientIds?: string[]) {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+
+    const rows = await this.prisma.accountReceivable.findMany({
+      where: {
+        status: { in: ["ABERTO", "PARCIAL", "VENCIDO"] },
+        dueDate: { lt: start },
+        patientId: patientIds?.length ? { in: patientIds } : { not: null },
+      },
+      include: {
+        patient: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            whatsapp: true,
+            phone: true,
+          },
+        },
+      },
+      orderBy: { dueDate: "asc" },
+    });
+
+    const map = new Map<
+      string,
+      {
+        patientId: string;
+        fullName: string;
+        email: string | null;
+        whatsapp: string | null;
+        phone: string | null;
+        totalCents: number;
+        items: Array<{
+          id: string;
+          description: string;
+          dueDate: Date;
+          remainingCents: number;
+        }>;
+      }
+    >();
+
+    for (const r of rows) {
+      if (!r.patientId || !r.patient) continue;
+      const rest = Math.max(0, r.amountCents - r.paidCents);
+      if (rest <= 0) continue;
+      const cur = map.get(r.patientId) || {
+        patientId: r.patientId,
+        fullName: r.patient.fullName,
+        email: r.patient.email,
+        whatsapp: r.patient.whatsapp,
+        phone: r.patient.phone,
+        totalCents: 0,
+        items: [],
+      };
+      cur.totalCents += rest;
+      cur.items.push({
+        id: r.id,
+        description: r.description,
+        dueDate: r.dueDate,
+        remainingCents: rest,
+      });
+      map.set(r.patientId, cur);
+    }
+
+    return Array.from(map.values()).sort((a, b) => b.totalCents - a.totalCents);
+  }
+
+  async previewOverdueReminders(patientIds?: string[]) {
+    const groups = await this.loadOverdueByPatient(patientIds);
+    return {
+      sampleMessage:
+        groups[0]
+          ? this.overdueReminderMessage({
+              patientName: groups[0].fullName,
+              totalCents: groups[0].totalCents,
+              items: groups[0].items,
+            })
+          : this.overdueReminderMessage({
+              patientName: "Paciente",
+              totalCents: 0,
+              items: [
+                {
+                  description: "Exemplo de lançamento",
+                  dueDate: new Date(),
+                  remainingCents: 0,
+                },
+              ],
+            }),
+      patients: groups.map((g) => ({
+        patientId: g.patientId,
+        fullName: g.fullName,
+        totalCents: g.totalCents,
+        items: g.items.length,
+        email: g.email,
+        phone: g.whatsapp || g.phone,
+        canEmail: Boolean(g.email?.includes("@")),
+        canWhatsapp: Boolean(normalizeBrazilWhatsApp(g.whatsapp || g.phone)),
+      })),
+      emailProvider: this.email.provider,
+      whatsappProvider: this.whatsapp.provider,
+    };
+  }
+
+  async sendOverdueReminders(data: {
+    channels?: OverdueChannel[];
+    patientIds?: string[];
+  }) {
+    const channels = (data.channels || []).filter(
+      (c): c is OverdueChannel => c === "email" || c === "whatsapp",
+    );
+    if (!channels.length) {
+      throw new BadRequestException("Selecione e-mail e/ou WhatsApp");
+    }
+
+    const groups = await this.loadOverdueByPatient(data.patientIds);
+    if (!groups.length) {
+      return {
+        sent: 0,
+        results: [],
+        detail: "Nenhum paciente com título vencido em aberto",
+      };
+    }
+
+    const results: Array<{
+      patientId: string;
+      fullName: string;
+      totalCents: number;
+      message: string;
+      email?: Awaited<ReturnType<EmailService["sendText"]>>;
+      whatsapp?: Awaited<ReturnType<WhatsappService["sendText"]>> & { waUrl?: string };
+    }> = [];
+
+    for (const g of groups) {
+      const message = this.overdueReminderMessage({
+        patientName: g.fullName,
+        totalCents: g.totalCents,
+        items: g.items,
+      });
+      const entry: (typeof results)[number] = {
+        patientId: g.patientId,
+        fullName: g.fullName,
+        totalCents: g.totalCents,
+        message,
+      };
+
+      if (channels.includes("email")) {
+        if (!g.email) {
+          entry.email = {
+            ok: false,
+            status: "skipped",
+            detail: "Paciente sem e-mail cadastrado",
+          };
+        } else {
+          entry.email = await this.email.sendText({
+            to: g.email,
+            subject: `Lembrete amigável — valores em aberto | ${process.env.CLINIC_NAME || "Equilíbrio"}`,
+            text: message,
+          });
+        }
+      }
+
+      if (channels.includes("whatsapp")) {
+        const phone = g.whatsapp || g.phone;
+        const normalized = normalizeBrazilWhatsApp(phone);
+        const waUrl = normalized
+          ? `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`
+          : undefined;
+        if (!phone || !normalized) {
+          entry.whatsapp = {
+            ok: false,
+            status: "skipped",
+            detail: "Paciente sem WhatsApp/telefone válido",
+            waUrl,
+          };
+        } else {
+          const sent = await this.whatsapp.sendText(phone, message);
+          entry.whatsapp = { ...sent, waUrl };
+        }
+      }
+
+      results.push(entry);
+    }
+
+    const sent = results.filter((r) => r.email?.ok || r.whatsapp?.ok).length;
+
+    return { sent, total: results.length, channels, results };
   }
 
   async dashboard(role = "ADMIN") {

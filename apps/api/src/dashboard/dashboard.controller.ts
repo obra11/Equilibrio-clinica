@@ -1,9 +1,9 @@
-import { Controller, Get, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Post, Req, UseGuards } from "@nestjs/common";
 import { DashboardService } from "./dashboard.service";
 import { AuthUser } from "../common/auth-user";
-import { JwtAuthGuard } from "../common/guards";
+import { JwtAuthGuard, Roles, RolesGuard } from "../common/guards";
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller("dashboard")
 export class DashboardController {
   constructor(private dashboard: DashboardService) {}
@@ -11,5 +11,11 @@ export class DashboardController {
   @Get("summary")
   summary(@Req() req: { user: AuthUser }) {
     return this.dashboard.summary(req.user.role);
+  }
+
+  @Roles("ADMIN", "RECEPCAO")
+  @Post("remind-today")
+  remindToday(@Body() body: { scope?: "appointments" | "classes" | "all" }) {
+    return this.dashboard.remindToday(body?.scope || "all");
   }
 }

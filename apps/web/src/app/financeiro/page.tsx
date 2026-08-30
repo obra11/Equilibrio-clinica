@@ -141,6 +141,91 @@ export default function FinanceiroPage() {
   const [recurrenceMonths, setRecurrenceMonths] = useState("12");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [remindEmail, setRemindEmail] = useState(true);
+  const [remindWhatsapp, setRemindWhatsapp] = useState(true);
+  const [reminding, setReminding] = useState(false);
+  const [remindInfo, setRemindInfo] = useState("");
+  const [remindPreview, setRemindPreview] = useState<{
+    sampleMessage: string;
+    patients: Array<{
+      patientId: string;
+      fullName: string;
+      totalCents: number;
+      items: number;
+      canEmail: boolean;
+      canWhatsapp: boolean;
+    }>;
+  } | null>(null);
+  const [remindResults, setRemindResults] = useState<Array<{
+    fullName: string;
+    email?: { ok: boolean; status: string; detail?: string };
+    whatsapp?: { ok: boolean; status: string; detail?: string; waUrl?: string };
+  }> | null>(null);
+
+  async function loadOverduePreview() {
+    try {
+      const preview = await api<{
+        sampleMessage: string;
+        patients: Array<{
+          patientId: string;
+          fullName: string;
+          totalCents: number;
+          items: number;
+          canEmail: boolean;
+          canWhatsapp: boolean;
+        }>;
+      }>("/finance/overdue-reminders/preview");
+      setRemindPreview(preview);
+    } catch {
+      /* preview opcional */
+    }
+  }
+
+  async function sendOverdueReminders() {
+    const channels: Array<"email" | "whatsapp"> = [];
+    if (remindEmail) channels.push("email");
+    if (remindWhatsapp) channels.push("whatsapp");
+    if (!channels.length) {
+      setError("Selecione e-mail e/ou WhatsApp");
+      return;
+    }
+    const n = remindPreview?.patients.length ?? 0;
+    const ok = window.confirm(
+      n > 0
+        ? `Enviar lembrete amigável para ${n} paciente(s) em atraso via ${channels.join(" e ")}?`
+        : `Enviar lembretes aos pacientes com títulos vencidos via ${channels.join(" e ")}?`,
+    );
+    if (!ok) return;
+    setReminding(true);
+    setError("");
+    setRemindInfo("");
+    setRemindResults(null);
+    try {
+      const res = await api<{
+        sent: number;
+        total?: number;
+        detail?: string;
+        results: Array<{
+          fullName: string;
+          email?: { ok: boolean; status: string; detail?: string };
+          whatsapp?: { ok: boolean; status: string; detail?: string; waUrl?: string };
+        }>;
+      }>("/finance/overdue-reminders", {
+        method: "POST",
+        body: JSON.stringify({ channels }),
+      });
+      setRemindResults(res.results || []);
+      setRemindInfo(
+        res.detail ||
+          `Lembretes processados: ${res.sent} de ${res.total ?? res.results?.length ?? 0} paciente(s).`,
+      );
+      await loadOverduePreview();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao enviar lembretes");
+    } finally {
+      setReminding(false);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -160,6 +245,7 @@ export default function FinanceiroPage() {
       setProfessionals(pros);
       setCategories(cats);
       if (!patientId && pats[0]) setPatientId(pats[0].id);
+      loadOverduePreview().catch(() => undefined);
     } finally {
       setLoading(false);
     }
@@ -360,6 +446,7 @@ export default function FinanceiroPage() {
       </div>
 
       {error ? <p className="mb-4 text-sm text-red-700">{error}</p> : null}
+      {remindInfo ? <p className="mb-4 text-sm text-olive">{remindInfo}</p> : null}
       {loading && !dashboard ? <p className="text-olive-muted">Carregando...</p> : null}
 
       {tab === "dashboard" && dashboard ? (
@@ -520,6 +607,108 @@ export default function FinanceiroPage() {
             </section>
           </div>
 
+          <section className="eq-card">
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="font-display text-xl text-olive">Lembrete de atraso</h2>
+                <p className="mt-1 text-sm text-olive-muted">
+                  Mensagem padrão educada para pacientes com títulos vencidos (e-mail e/ou WhatsApp)
+                </p>
+              </div>
+              <p className="text-xs text-olive-muted">
+                {remindPreview?.patients.length ?? 0} paciente(s) elegível(is)
+              </p>
+            </div>
+
+            <div className="mb-3 flex flex-wrap items-center gap-4 text-sm text-olive">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={remindEmail}
+                  onChange={(e) => setRemindEmail(e.target.checked)}
+                />
+                E-mail
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={remindWhatsapp}
+                  onChange={(e) => setRemindWhatsapp(e.target.checked)}
+                />
+                WhatsApp
+              </label>
+              <button
+                type="button"
+                className="eq-btn"
+                disabled={reminding || (remindPreview?.patients.length ?? 0) === 0}
+                onClick={() => sendOverdueReminders()}
+              >
+                {reminding ? "Enviando..." : "Enviar lembretes"}
+              </button>
+            </div>
+
+            {remindPreview?.sampleMessage ? (
+              <details className="mb-3 rounded-md border border-borderEq bg-cream/40 p-3 text-sm">
+                <summary className="cursor-pointer font-medium text-olive">
+                  Ver modelo da mensagem
+                </summary>
+                <pre className="mt-2 whitespace-pre-wrap font-sans text-xs text-olive-muted">
+                  {remindPreview.sampleMessage}
+                </pre>
+              </details>
+            ) : null}
+
+            {remindPreview && remindPreview.patients.length > 0 ? (
+              <div className="mb-2 max-h-40 space-y-1 overflow-y-auto text-xs text-olive-muted">
+                {remindPreview.patients.map((p) => (
+                  <p key={p.patientId}>
+                    {p.fullName} · {formatMoney(p.totalCents)} ·{" "}
+                    {[p.canEmail ? "e-mail" : null, p.canWhatsapp ? "WhatsApp" : null]
+                      .filter(Boolean)
+                      .join(" · ") || "sem contato"}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-olive-muted">Nenhum vencido com paciente vinculado no momento.</p>
+            )}
+
+            {remindResults && remindResults.length > 0 ? (
+              <div className="mt-3 space-y-2 border-t border-borderEq pt-3 text-sm">
+                <p className="font-medium text-olive">Resultado do envio</p>
+                {remindResults.map((r, idx) => (
+                  <div key={`${r.fullName}-${idx}`} className="rounded-md border border-borderEq p-2">
+                    <p className="font-medium">{r.fullName}</p>
+                    {r.email ? (
+                      <p className="text-xs text-olive-muted">
+                        E-mail: {r.email.ok ? r.email.status : r.email.detail || r.email.status}
+                      </p>
+                    ) : null}
+                    {r.whatsapp ? (
+                      <p className="text-xs text-olive-muted">
+                        WhatsApp:{" "}
+                        {r.whatsapp.ok ? r.whatsapp.status : r.whatsapp.detail || r.whatsapp.status}
+                        {r.whatsapp.waUrl ? (
+                          <>
+                            {" · "}
+                            <a
+                              href={r.whatsapp.waUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="font-semibold text-olive underline"
+                            >
+                              Abrir no WhatsApp
+                            </a>
+                          </>
+                        ) : null}
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </section>
+
           <div className="grid gap-4 lg:grid-cols-2">
             <section className="eq-card">
               <h2 className="mb-3 font-display text-xl text-olive">Receber vencido</h2>
@@ -580,6 +769,16 @@ export default function FinanceiroPage() {
                 {label}
               </button>
             ))}
+            {tab === "receber" && listFilter === "vencidos" ? (
+              <button
+                type="button"
+                className="eq-btn-ghost"
+                disabled={reminding}
+                onClick={() => sendOverdueReminders()}
+              >
+                {reminding ? "Enviando..." : "Avisar vencidos (e-mail/WhatsApp)"}
+              </button>
+            ) : null}
           </div>
 
           {showForm ? (

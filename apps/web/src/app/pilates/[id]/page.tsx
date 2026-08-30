@@ -23,6 +23,7 @@ type ClassSession = {
   notes?: string | null;
   lessonPlan?: string | null;
   lessonPlanMedia?: LessonMedia[];
+  seriesGroupId?: string | null;
   professionalId: string;
   serviceTypeId: string;
   roomId?: string | null;
@@ -31,6 +32,7 @@ type ClassSession = {
   enrollments: Array<{
     id: string;
     status: string;
+    isMakeup?: boolean;
     patient: { id: string; fullName: string };
   }>;
 };
@@ -47,6 +49,7 @@ export default function AulaPilatesPage() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [enrollPatientId, setEnrollPatientId] = useState("");
   const [enrollStatus, setEnrollStatus] = useState("CONFIRMADO");
+  const [enrollIsMakeup, setEnrollIsMakeup] = useState(false);
   const [lessonPlan, setLessonPlan] = useState("");
   const [media, setMedia] = useState<LessonMedia[]>([]);
   const [mediaUrls, setMediaUrls] = useState<Record<string, string>>({});
@@ -55,6 +58,9 @@ export default function AulaPilatesPage() {
   const [planSaved, setPlanSaved] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [enrollMsg, setEnrollMsg] = useState("");
+  const [remindingClass, setRemindingClass] = useState(false);
+  const [classRemindMsg, setClassRemindMsg] = useState("");
   const galleryRef = useRef<HTMLInputElement>(null);
   const cameraPhotoRef = useRef<HTMLInputElement>(null);
   const cameraVideoRef = useRef<HTMLInputElement>(null);
@@ -122,11 +128,27 @@ export default function AulaPilatesPage() {
   async function enroll(e: FormEvent) {
     e.preventDefault();
     setError("");
+    setEnrollMsg("");
+    const wasMakeup = enrollIsMakeup;
     try {
-      await api(`/classes/${id}/enroll`, {
+      const res = await api<{ replicated?: number }>(`/classes/${id}/enroll`, {
         method: "POST",
-        body: JSON.stringify({ patientId: enrollPatientId, status: enrollStatus }),
+        body: JSON.stringify({
+          patientId: enrollPatientId,
+          status: enrollStatus,
+          isMakeup: wasMakeup,
+        }),
       });
+      setEnrollIsMakeup(false);
+      if (wasMakeup) {
+        setEnrollMsg("Aluno inscrito só nesta aula (reposição).");
+      } else if ((res.replicated ?? 0) > 0) {
+        setEnrollMsg(
+          `Aluno inscrito e replicado em ${res.replicated} aula(s) da turma.`,
+        );
+      } else {
+        setEnrollMsg("Aluno inscrito nesta aula.");
+      }
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao inscrever");
@@ -143,6 +165,19 @@ export default function AulaPilatesPage() {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao atualizar");
+    }
+  }
+
+  async function toggleMakeup(enrollmentId: string, isMakeup: boolean) {
+    setError("");
+    try {
+      await api(`/classes/enrollments/${enrollmentId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ isMakeup }),
+      });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao atualizar reposição");
     }
   }
 
@@ -208,6 +243,39 @@ export default function AulaPilatesPage() {
     }
   }
 
+  async function sendClassReminders() {
+    if (!session) return;
+    const n = session.enrollments.filter((e) =>
+      ["CONFIRMADO", "PRESENTE", "LISTA_ESPERA"].includes(e.status),
+    ).length;
+    if (!n) {
+      setError("Não há alunos ativos para lembrar nesta aula.");
+      return;
+    }
+    if (!window.confirm(`Enviar lembrete WhatsApp para ${n} aluno(s)?`)) return;
+    setRemindingClass(true);
+    setError("");
+    setClassRemindMsg("");
+    try {
+      const res = await api<{
+        sent: number;
+        total: number;
+        results: Array<{ waUrl?: string; ok?: boolean; status?: string }>;
+      }>(`/classes/${id}/reminders`, { method: "POST" });
+      setClassRemindMsg(`${res.sent}/${res.total} lembrete(s) enviados.`);
+      const link = res.results?.find(
+        (r) => r.waUrl && (!r.ok || r.status === "simulated" || r.status === "skipped"),
+      );
+      if (link?.waUrl && res.sent === 0) {
+        window.open(link.waUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao enviar lembretes");
+    } finally {
+      setRemindingClass(false);
+    }
+  }
+
   const filled =
     session?.enrollments.filter((e) => e.status === "CONFIRMADO" || e.status === "PRESENTE")
       .length ?? 0;
@@ -225,15 +293,27 @@ export default function AulaPilatesPage() {
               : "Carregando..."}
           </p>
         </div>
-        <Link href="/pilates" className="eq-btn-ghost">
-          Voltar às turmas
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="eq-btn"
+            disabled={remindingClass || !session}
+            onClick={sendClassReminders}
+          >
+            {remindingClass ? "Enviando..." : "Lembrar alunos (WhatsApp)"}
+          </button>
+          <Link href="/pilates" className="eq-btn-ghost">
+            Voltar às turmas
+          </Link>
+        </div>
       </div>
 
       {error ? <p className="mb-4 text-sm text-red-700">{error}</p> : null}
       {saved ? (
         <p className="mb-4 text-sm text-olive">Dados da aula salvos.</p>
       ) : null}
+      {enrollMsg ? <p className="mb-4 text-sm text-olive">{enrollMsg}</p> : null}
+      {classRemindMsg ? <p className="mb-4 text-sm text-olive">{classRemindMsg}</p> : null}
 
       {!session || !initial ? (
         <p className="text-olive-muted">Carregando...</p>
@@ -436,30 +516,46 @@ export default function AulaPilatesPage() {
                 </p>
               </div>
 
-              <form onSubmit={enroll} className="mb-4 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
-                <select
-                  className="eq-input"
-                  value={enrollPatientId}
-                  onChange={(e) => setEnrollPatientId(e.target.value)}
-                >
-                  {patients.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.fullName}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  className="eq-input"
-                  value={enrollStatus}
-                  onChange={(e) => setEnrollStatus(e.target.value)}
-                >
-                  {ENROLL_STATUSES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-                <button className="eq-btn whitespace-nowrap">Inscrever</button>
+              <form onSubmit={enroll} className="mb-4 space-y-2">
+                <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+                  <select
+                    className="eq-input"
+                    value={enrollPatientId}
+                    onChange={(e) => setEnrollPatientId(e.target.value)}
+                  >
+                    {patients.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.fullName}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    className="eq-input"
+                    value={enrollStatus}
+                    onChange={(e) => setEnrollStatus(e.target.value)}
+                  >
+                    {ENROLL_STATUSES.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                  <button className="eq-btn whitespace-nowrap">Inscrever</button>
+                </div>
+                <label className="flex items-start gap-2 text-xs text-olive-muted">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={enrollIsMakeup}
+                    onChange={(e) => setEnrollIsMakeup(e.target.checked)}
+                  />
+                  <span>
+                    Reposição (só esta aula)
+                    {session.seriesGroupId && !enrollIsMakeup ? (
+                      <> — aluno regular será replicado nas próximas aulas da turma</>
+                    ) : null}
+                  </span>
+                </label>
               </form>
 
               {session.enrollments.length === 0 ? (
@@ -472,7 +568,14 @@ export default function AulaPilatesPage() {
                       className="flex flex-wrap items-center justify-between gap-2 border-b border-borderEq/70 py-2 text-sm"
                     >
                       <div className="min-w-0">
-                        <p className="font-medium text-olive">{e.patient.fullName}</p>
+                        <p className="font-medium text-olive">
+                          {e.patient.fullName}
+                          {e.isMakeup ? (
+                            <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-gold">
+                              Reposição
+                            </span>
+                          ) : null}
+                        </p>
                         <Link
                           href={`/pacientes/${e.patient.id}`}
                           className="text-xs font-semibold text-olive underline-offset-2 hover:underline"
@@ -480,7 +583,15 @@ export default function AulaPilatesPage() {
                           Abrir prontuário →
                         </Link>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label className="flex items-center gap-1 text-[10px] text-olive-muted">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(e.isMakeup)}
+                            onChange={(ev) => toggleMakeup(e.id, ev.target.checked)}
+                          />
+                          Reposição
+                        </label>
                         <select
                           className="eq-input py-1 text-xs"
                           value={e.status}

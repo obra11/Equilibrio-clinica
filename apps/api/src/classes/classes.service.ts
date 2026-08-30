@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+import { WhatsappService } from "../whatsapp/whatsapp.service";
 
 export type LessonPlanMediaItem = {
   url: string;
@@ -62,7 +63,10 @@ function generateOccurrences(
 
 @Injectable()
 export class ClassesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private whatsapp: WhatsappService,
+  ) {}
 
   private async assertNoScheduleConflict(params: {
     professionalId: string;
@@ -406,14 +410,21 @@ export class ClassesService {
     return { ok: true };
   }
 
-  async enroll(classSessionId: string, patientId: string, status = "CONFIRMADO") {
+  async enroll(
+    classSessionId: string,
+    patientId: string,
+    status = "CONFIRMADO",
+    isMakeup = false,
+  ) {
     const session = await this.prisma.classSession.findUnique({
       where: { id: classSessionId },
       include: { enrollments: true },
     });
     if (!session) throw new NotFoundException("Aula não encontrada");
     const active = session.enrollments.filter(
-      (e) => e.status === "CONFIRMADO" || e.status === "PRESENTE",
+      (e) =>
+        e.patientId !== patientId &&
+        (e.status === "CONFIRMADO" || e.status === "PRESENTE"),
     );
     if (active.length >= session.capacity && status === "CONFIRMADO") {
       throw new BadRequestException("Turma lotada — use lista de espera");
@@ -454,24 +465,192 @@ export class ClassesService {
       }
     }
 
-    return this.prisma.classEnrollment.upsert({
+    const enrollment = await this.prisma.classEnrollment.upsert({
       where: { classSessionId_patientId: { classSessionId, patientId } },
-      create: { classSessionId, patientId, status },
-      update: { status },
+      create: { classSessionId, patientId, status, isMakeup },
+      update: { status, isMakeup },
       include: { patient: true, classSession: true },
     });
+
+    let replicated = 0;
+    const shouldReplicate =
+      !isMakeup &&
+      !!session.seriesGroupId &&
+      (status === "CONFIRMADO" || status === "LISTA_ESPERA");
+
+    if (shouldReplicate && session.seriesGroupId) {
+      replicated = await this.replicateEnrollmentToSeries(
+        session,
+        patientId,
+        status,
+      );
+    }
+
+    return { ...enrollment, replicated };
   }
 
-  async updateEnrollment(id: string, status: string) {
-    return this.prisma.classEnrollment.update({
-      where: { id },
-      data: { status },
-      include: { patient: true },
+  /** Replica aluno regular para as próximas aulas da mesma turma (série). */
+  private async replicateEnrollmentToSeries(
+    session: { id: string; seriesGroupId: string | null; startsAt: Date },
+    patientId: string,
+    status: string,
+  ) {
+    if (!session.seriesGroupId) return 0;
+
+    const siblings = await this.prisma.classSession.findMany({
+      where: {
+        seriesGroupId: session.seriesGroupId,
+        id: { not: session.id },
+        startsAt: { gte: session.startsAt },
+      },
+      include: { enrollments: true },
+      orderBy: { startsAt: "asc" },
     });
+
+    let replicated = 0;
+    for (const sibling of siblings) {
+      const already = sibling.enrollments.find((e) => e.patientId === patientId);
+      if (already?.isMakeup) continue;
+
+      let nextStatus = status;
+      if (status === "CONFIRMADO") {
+        const filled = sibling.enrollments.filter(
+          (e) =>
+            e.patientId !== patientId &&
+            (e.status === "CONFIRMADO" || e.status === "PRESENTE"),
+        ).length;
+        if (!already && filled >= sibling.capacity) {
+          nextStatus = "LISTA_ESPERA";
+        }
+      }
+
+      // Não sobrescreve presença/falta/cancelamento já lançado
+      if (already && ["PRESENTE", "FALTOU", "CANCELADO"].includes(already.status)) {
+        await this.prisma.classEnrollment.update({
+          where: { id: already.id },
+          data: { isMakeup: false },
+        });
+        replicated += 1;
+        continue;
+      }
+
+      await this.prisma.classEnrollment.upsert({
+        where: {
+          classSessionId_patientId: {
+            classSessionId: sibling.id,
+            patientId,
+          },
+        },
+        create: {
+          classSessionId: sibling.id,
+          patientId,
+          status: nextStatus,
+          isMakeup: false,
+        },
+        update: { status: nextStatus, isMakeup: false },
+      });
+      replicated += 1;
+    }
+    return replicated;
+  }
+
+  async updateEnrollment(
+    id: string,
+    data: { status?: string; isMakeup?: boolean },
+  ) {
+    const current = await this.prisma.classEnrollment.findUnique({
+      where: { id },
+      include: { classSession: true, patient: true },
+    });
+    if (!current) throw new NotFoundException("Inscrição não encontrada");
+
+    const status = data.status ?? current.status;
+    const isMakeup = data.isMakeup ?? current.isMakeup;
+
+    const updated = await this.prisma.classEnrollment.update({
+      where: { id },
+      data: { status, isMakeup },
+      include: { patient: true, classSession: true },
+    });
+
+    if (
+      !isMakeup &&
+      current.classSession.seriesGroupId &&
+      (status === "CONFIRMADO" || status === "LISTA_ESPERA")
+    ) {
+      await this.replicateEnrollmentToSeries(
+        current.classSession,
+        current.patientId,
+        status,
+      );
+    }
+
+    return updated;
   }
 
   async removeEnrollment(id: string) {
     await this.prisma.classEnrollment.delete({ where: { id } });
     return { ok: true };
+  }
+
+  /** Envia lembrete WhatsApp aos alunos ativos da aula. */
+  async sendReminders(id: string) {
+    const session = await this.prisma.classSession.findUnique({
+      where: { id },
+      include: {
+        professional: true,
+        room: true,
+        enrollments: {
+          include: { patient: true },
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
+    if (!session) throw new NotFoundException("Aula não encontrada");
+
+    const active = session.enrollments.filter((e) =>
+      ["CONFIRMADO", "PRESENTE", "LISTA_ESPERA"].includes(e.status),
+    );
+
+    const results = [];
+    for (const e of active) {
+      const phone = e.patient.whatsapp || e.patient.phone;
+      const message = this.whatsapp.classReminderMessage({
+        patientName: e.patient.fullName,
+        startsAt: session.startsAt,
+        title: session.title,
+        professionalName: session.professional.fullName,
+        roomName: session.room?.name,
+      });
+      const waUrl = this.whatsapp.waMeUrl(phone, message);
+      if (!phone) {
+        results.push({
+          patientId: e.patientId,
+          fullName: e.patient.fullName,
+          ok: false,
+          status: "skipped" as const,
+          detail: "Sem WhatsApp/telefone",
+          message,
+          waUrl,
+        });
+        continue;
+      }
+      const sent = await this.whatsapp.sendText(phone, message);
+      results.push({
+        patientId: e.patientId,
+        fullName: e.patient.fullName,
+        ...sent,
+        message,
+        waUrl,
+      });
+    }
+
+    return {
+      classId: session.id,
+      title: session.title,
+      total: results.length,
+      sent: results.filter((r) => r.ok).length,
+      results,
+    };
   }
 }

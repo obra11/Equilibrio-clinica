@@ -1,9 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+import { WhatsappService } from "../whatsapp/whatsapp.service";
 
 @Injectable()
 export class AppointmentsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private whatsapp: WhatsappService,
+  ) {}
 
   list(params: { from?: string; to?: string; professionalId?: string }) {
     const from = params.from ? new Date(params.from) : undefined;
@@ -435,5 +439,48 @@ export class AppointmentsService {
     }
     await this.update(id, { status: "CANCELADO" });
     return { ok: true, id, status: "CANCELADO" };
+  }
+
+  async sendReminder(id: string) {
+    const appt = await this.prisma.appointment.findUnique({
+      where: { id },
+      include: {
+        patient: true,
+        professional: true,
+        serviceType: true,
+        room: true,
+      },
+    });
+    if (!appt) throw new NotFoundException("Agendamento não encontrado");
+    if (appt.status === "CANCELADO") {
+      throw new BadRequestException("Não é possível lembrar agendamento cancelado");
+    }
+
+    const phone = appt.patient.whatsapp || appt.patient.phone;
+    const message = this.whatsapp.appointmentReminderMessage({
+      patientName: appt.patient.fullName,
+      startsAt: appt.startsAt,
+      serviceName: appt.serviceType.name,
+      professionalName: appt.professional.fullName,
+      roomName: appt.room?.name,
+    });
+    const waUrl = this.whatsapp.waMeUrl(phone, message);
+    if (!phone) {
+      return {
+        ok: false,
+        status: "skipped" as const,
+        detail: "Paciente sem WhatsApp/telefone",
+        message,
+        waUrl,
+        patientName: appt.patient.fullName,
+      };
+    }
+    const sent = await this.whatsapp.sendText(phone, message);
+    return {
+      ...sent,
+      message,
+      waUrl,
+      patientName: appt.patient.fullName,
+    };
   }
 }

@@ -163,6 +163,8 @@ model ClassEnrollment {
   patientId      String
   patient        Patient      @relation(fields: [patientId], references: [id])
   status         String       @default("CONFIRMADO")
+  /// true = reposição: vale só nesta aula (não replica na turma)
+  isMakeup       Boolean      @default(false)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 

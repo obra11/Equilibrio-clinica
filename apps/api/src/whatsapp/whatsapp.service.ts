@@ -62,6 +62,78 @@ export class WhatsappService {
     );
   }
 
+  appointmentReminderMessage(params: {
+    patientName: string;
+    startsAt: Date;
+    serviceName: string;
+    professionalName: string;
+    roomName?: string | null;
+  }) {
+    const clinic =
+      process.env.CLINIC_NAME || "Equilíbrio Fisioterapia e Bem-Estar";
+    const first = params.patientName.trim().split(/\s+/)[0] || "olá";
+    const when = params.startsAt.toLocaleString("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+      weekday: "long",
+      day: "2-digit",
+      month: "long",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const room = params.roomName?.trim()
+      ? `\n📍 Sala: ${params.roomName.trim()}`
+      : "";
+    return (
+      `Olá, ${first}! 🌿\n\n` +
+      `Passando para lembrar do seu atendimento na *${clinic}*.\n\n` +
+      `📅 ${when}\n` +
+      `🩺 ${params.serviceName}\n` +
+      `👤 Com ${params.professionalName}` +
+      `${room}\n\n` +
+      `Se precisar remarcar, fale conosco com antecedência.\n` +
+      `Aguardamos você!`
+    );
+  }
+
+  classReminderMessage(params: {
+    patientName: string;
+    startsAt: Date;
+    title: string;
+    professionalName: string;
+    roomName?: string | null;
+  }) {
+    const clinic =
+      process.env.CLINIC_NAME || "Equilíbrio Fisioterapia e Bem-Estar";
+    const first = params.patientName.trim().split(/\s+/)[0] || "olá";
+    const when = params.startsAt.toLocaleString("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+      weekday: "long",
+      day: "2-digit",
+      month: "long",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const room = params.roomName?.trim()
+      ? `\n📍 Sala: ${params.roomName.trim()}`
+      : "";
+    return (
+      `Olá, ${first}! 🌿\n\n` +
+      `Lembrete da sua aula de Pilates na *${clinic}*.\n\n` +
+      `📅 ${when}\n` +
+      `🧘‍♀️ ${params.title}\n` +
+      `👤 Com ${params.professionalName}` +
+      `${room}\n\n` +
+      `Contamos com a sua presença. Se não puder vir, avise com antecedência, por favor.\n` +
+      `Até breve!`
+    );
+  }
+
+  waMeUrl(phone: string | null | undefined, text: string) {
+    const to = normalizeBrazilWhatsApp(phone);
+    if (!to) return undefined;
+    return `https://wa.me/${to}?text=${encodeURIComponent(text)}`;
+  }
+
   async sendText(toRaw: string, text: string): Promise<WhatsAppSendResult> {
     const to = normalizeBrazilWhatsApp(toRaw);
     if (!to) {

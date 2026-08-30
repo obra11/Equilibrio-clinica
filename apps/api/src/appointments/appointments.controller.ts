@@ -49,4 +49,10 @@ export class AppointmentsController {
   remove(@Param("id") id: string) {
     return this.appointments.remove(id);
   }
+
+  @Roles("ADMIN", "RECEPCAO")
+  @Post(":id/reminder")
+  sendReminder(@Param("id") id: string) {
+    return this.appointments.sendReminder(id);
+  }
 }

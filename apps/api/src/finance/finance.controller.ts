@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { FinanceService } from "./finance.service";
 import { AuthUser } from "../common/auth-user";
 import { JwtAuthGuard, Roles, RolesGuard } from "../common/guards";
@@ -60,5 +60,23 @@ export class FinanceController {
   @Post("payables/:id/payments")
   payPayable(@Param("id") id: string, @Body() body: Record<string, unknown>) {
     return this.finance.payPayable(id, body as never);
+  }
+
+  @Roles("ADMIN", "RECEPCAO")
+  @Get("overdue-reminders/preview")
+  previewOverdueReminders(@Query("patientId") patientId?: string) {
+    return this.finance.previewOverdueReminders(patientId ? [patientId] : undefined);
+  }
+
+  @Roles("ADMIN", "RECEPCAO")
+  @Post("overdue-reminders")
+  sendOverdueReminders(
+    @Body()
+    body: {
+      channels?: Array<"email" | "whatsapp">;
+      patientIds?: string[];
+    },
+  ) {
+    return this.finance.sendOverdueReminders(body || {});
   }
 }

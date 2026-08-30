@@ -21,6 +21,22 @@ type Appointment = {
   receivables?: Array<{ id: string; amountCents: number; status: string }>;
 };
 
+type ClassItem = {
+  id: string;
+  title: string;
+  startsAt: string;
+  endsAt: string;
+  capacity: number;
+  professional: { id: string; fullName: string; color: string };
+  serviceType: { id: string; name: string };
+  room?: { id: string; name: string } | null;
+  enrollments: Array<{ status: string; patient?: { fullName: string } }>;
+};
+
+type AgendaEvent =
+  | { kind: "appt"; id: string; startsAt: string; endsAt: string; professional: Appointment["professional"]; data: Appointment }
+  | { kind: "class"; id: string; startsAt: string; endsAt: string; professional: ClassItem["professional"]; data: ClassItem };
+
 type Option = {
   id: string;
   fullName?: string;
@@ -96,6 +112,7 @@ export default function AgendaPage() {
   const [view, setView] = useState<ViewMode>("week");
   const [cursor, setCursor] = useState(() => startOfDay(new Date()));
   const [items, setItems] = useState<Appointment[]>([]);
+  const [classes, setClasses] = useState<ClassItem[]>([]);
   const [patients, setPatients] = useState<Option[]>([]);
   const [professionals, setProfessionals] = useState<Option[]>([]);
   const [services, setServices] = useState<Option[]>([]);
@@ -116,6 +133,8 @@ export default function AgendaPage() {
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [reminding, setReminding] = useState(false);
+  const [remindMsg, setRemindMsg] = useState("");
 
   const individualServices = useMemo(() => services.filter((s) => !s.isGroup), [services]);
 
@@ -138,10 +157,30 @@ export default function AgendaPage() {
   }, [cursor, view]);
 
   const visibleItems = useMemo(() => {
-    return items.filter((a) =>
-      filterProfessionalId ? a.professional.id === filterProfessionalId : true,
+    const appts: AgendaEvent[] = items
+      .filter((a) => (filterProfessionalId ? a.professional.id === filterProfessionalId : true))
+      .map((a) => ({
+        kind: "appt" as const,
+        id: a.id,
+        startsAt: a.startsAt,
+        endsAt: a.endsAt,
+        professional: a.professional,
+        data: a,
+      }));
+    const cls: AgendaEvent[] = classes
+      .filter((c) => (filterProfessionalId ? c.professional.id === filterProfessionalId : true))
+      .map((c) => ({
+        kind: "class" as const,
+        id: c.id,
+        startsAt: c.startsAt,
+        endsAt: c.endsAt,
+        professional: c.professional,
+        data: c,
+      }));
+    return [...appts, ...cls].sort(
+      (a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
     );
-  }, [items, filterProfessionalId]);
+  }, [items, classes, filterProfessionalId]);
 
   const weekDays = useMemo(() => {
     const start = startOfWeek(cursor);
@@ -173,11 +212,17 @@ export default function AgendaPage() {
     }));
   }
 
-  async function loadAppointments() {
-    const data = await api<Appointment[]>(
-      `/appointments?from=${range.from.toISOString()}&to=${range.to.toISOString()}`,
-    );
-    setItems(data.filter((a) => a.status !== "CANCELADO"));
+  async function loadAgenda() {
+    const [appts, cls] = await Promise.all([
+      api<Appointment[]>(
+        `/appointments?from=${range.from.toISOString()}&to=${range.to.toISOString()}`,
+      ),
+      api<ClassItem[]>(
+        `/classes?from=${range.from.toISOString()}&to=${range.to.toISOString()}`,
+      ),
+    ]);
+    setItems(appts.filter((a) => a.status !== "CANCELADO"));
+    setClasses(cls);
   }
 
   useEffect(() => {
@@ -190,12 +235,13 @@ export default function AgendaPage() {
 
   useEffect(() => {
     if (!getToken()) return;
-    loadAppointments().catch((e) => setError(e.message));
+    loadAgenda().catch((e) => setError(e.message));
   }, [range.from.getTime(), range.to.getTime()]);
 
   function openCreate(at: Date) {
     setSelected(null);
     setError("");
+    setRemindMsg("");
     const serviceTypeId = individualServices[0]?.id || "";
     setForm({
       patientId: patients[0]?.id || "",
@@ -213,6 +259,7 @@ export default function AgendaPage() {
   function openEvent(a: Appointment) {
     setSelected(a);
     setError("");
+    setRemindMsg("");
     const cents = a.priceCents ?? a.serviceType.priceCents ?? 0;
     setForm({
       patientId: a.patient.id,
@@ -280,7 +327,7 @@ export default function AgendaPage() {
 
       setModalOpen(false);
       setSelected(null);
-      await loadAppointments();
+      await loadAgenda();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao salvar agendamento");
     } finally {
@@ -313,11 +360,43 @@ export default function AgendaPage() {
       }
       setModalOpen(false);
       setSelected(null);
-      await loadAppointments();
+      await loadAgenda();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao excluir agendamento");
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function sendAppointmentReminder() {
+    if (!selected) return;
+    setReminding(true);
+    setError("");
+    setRemindMsg("");
+    try {
+      const res = await api<{
+        ok: boolean;
+        status: string;
+        detail?: string;
+        waUrl?: string;
+        patientName?: string;
+      }>(`/appointments/${selected.id}/reminder`, { method: "POST" });
+      if (res.ok) {
+        setRemindMsg(
+          res.status === "simulated"
+            ? `Lembrete registrado (simulado) para ${res.patientName || "o paciente"}.`
+            : `Lembrete enviado para ${res.patientName || "o paciente"}.`,
+        );
+      } else {
+        setRemindMsg(res.detail || "Não foi possível enviar automaticamente.");
+      }
+      if (res.waUrl && (!res.ok || res.status === "simulated" || res.status === "skipped")) {
+        window.open(res.waUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao enviar lembrete");
+    } finally {
+      setReminding(false);
     }
   }
 
@@ -336,13 +415,36 @@ export default function AgendaPage() {
     return luma > 0.62 ? "#1a1a1a" : "#ffffff";
   }
 
-  function eventStyle(a: Appointment) {
+  function eventStyle(a: AgendaEvent) {
     const bg = a.professional.color || "#1D4ED8";
     return {
       background: bg,
       borderColor: bg,
       color: contrastText(bg),
+      ...(a.kind === "class"
+        ? { outline: "2px dashed rgba(255,255,255,0.55)", outlineOffset: "-3px" }
+        : {}),
     };
+  }
+
+  function classFilled(c: ClassItem) {
+    return c.enrollments.filter((e) => e.status === "CONFIRMADO" || e.status === "PRESENTE")
+      .length;
+  }
+
+  function eventLabel(ev: AgendaEvent) {
+    if (ev.kind === "appt") {
+      return `${formatTime(ev.startsAt)} ${ev.data.patient.fullName}`;
+    }
+    return `${formatTime(ev.startsAt)} ${ev.data.title} (${classFilled(ev.data)}/${ev.data.capacity})`;
+  }
+
+  function openAgendaEvent(ev: AgendaEvent) {
+    if (ev.kind === "class") {
+      router.push(`/pilates/${ev.id}`);
+      return;
+    }
+    openEvent(ev.data);
   }
 
   const title =
@@ -358,7 +460,7 @@ export default function AgendaPage() {
         <div>
           <h1 className="font-display text-3xl text-olive">Agenda</h1>
           <p className="mt-1 text-sm text-olive-muted">
-            Calendário por profissional — clique no horário ou dia para agendar
+            Atendimentos e aulas de Pilates — clique na aula para abrir a turma
           </p>
         </div>
         <button type="button" className="eq-btn" onClick={() => openCreate(new Date())}>
@@ -473,17 +575,19 @@ export default function AgendaPage() {
                   <div className="space-y-1">
                     {dayEvents.slice(0, 3).map((a) => (
                       <div
-                        key={a.id}
+                        key={`${a.kind}-${a.id}`}
                         role="presentation"
                         onClick={(e) => {
                           e.stopPropagation();
-                          openEvent(a);
+                          openAgendaEvent(a);
                         }}
                         className="truncate rounded px-1.5 py-0.5 text-[10px] font-medium text-white"
                         style={eventStyle(a)}
-                        title={`${formatTime(a.startsAt)} ${a.patient.fullName}`}
+                        title={eventLabel(a)}
                       >
-                        {formatTime(a.startsAt)} {a.patient.fullName}
+                        {a.kind === "class"
+                          ? `${formatTime(a.startsAt)} ${a.data.title}`
+                          : `${formatTime(a.startsAt)} ${a.data.patient.fullName}`}
                       </div>
                     ))}
                     {dayEvents.length > 3 ? (
@@ -541,19 +645,31 @@ export default function AgendaPage() {
                     >
                       {slotEvents.map((a) => (
                         <div
-                          key={a.id}
+                          key={`${a.kind}-${a.id}`}
                           role="presentation"
                           onClick={(e) => {
                             e.stopPropagation();
-                            openEvent(a);
+                            openAgendaEvent(a);
                           }}
                           className="mb-1 rounded px-1.5 py-1 text-[11px] font-medium leading-tight text-white"
                           style={eventStyle(a)}
                         >
-                          <p className="truncate">{a.patient.fullName}</p>
-                          <p className="truncate opacity-90">
-                            {formatTime(a.startsAt)} · {a.serviceType.name}
-                          </p>
+                          {a.kind === "class" ? (
+                            <>
+                              <p className="truncate">{a.data.title}</p>
+                              <p className="truncate opacity-90">
+                                {formatTime(a.startsAt)} · Pilates · {classFilled(a.data)}/
+                                {a.data.capacity}
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="truncate">{a.data.patient.fullName}</p>
+                              <p className="truncate opacity-90">
+                                {formatTime(a.startsAt)} · {a.data.serviceType.name}
+                              </p>
+                            </>
+                          )}
                         </div>
                       ))}
                     </button>
@@ -588,20 +704,34 @@ export default function AgendaPage() {
                     <div className="flex flex-wrap gap-2">
                       {slotEvents.map((a) => (
                         <div
-                          key={a.id}
+                          key={`${a.kind}-${a.id}`}
                           role="presentation"
                           onClick={(e) => {
                             e.stopPropagation();
-                            openEvent(a);
+                            openAgendaEvent(a);
                           }}
                           className="min-w-[180px] flex-1 rounded-lg px-3 py-2 text-sm text-white"
                           style={eventStyle(a)}
                         >
-                          <p className="font-semibold">{a.patient.fullName}</p>
-                          <p className="text-xs opacity-90">
-                            {formatTime(a.startsAt)}–{formatTime(a.endsAt)} · {a.serviceType.name}
-                          </p>
-                          <p className="text-xs opacity-90">{a.professional.fullName}</p>
+                          {a.kind === "class" ? (
+                            <>
+                              <p className="font-semibold">{a.data.title}</p>
+                              <p className="text-xs opacity-90">
+                                {formatTime(a.startsAt)}–{formatTime(a.endsAt)} · Pilates ·{" "}
+                                {classFilled(a.data)}/{a.data.capacity}
+                              </p>
+                              <p className="text-xs opacity-90">{a.data.professional.fullName}</p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="font-semibold">{a.data.patient.fullName}</p>
+                              <p className="text-xs opacity-90">
+                                {formatTime(a.startsAt)}–{formatTime(a.endsAt)} ·{" "}
+                                {a.data.serviceType.name}
+                              </p>
+                              <p className="text-xs opacity-90">{a.data.professional.fullName}</p>
+                            </>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -800,7 +930,8 @@ export default function AgendaPage() {
                 </div>
               ) : null}
               {error ? <p className="text-sm text-red-700">{error}</p> : null}
-              <button className="eq-btn w-full" disabled={saving || deleting}>
+              {remindMsg ? <p className="text-sm text-olive">{remindMsg}</p> : null}
+              <button className="eq-btn w-full" disabled={saving || deleting || reminding}>
                 {saving
                   ? "Salvando..."
                   : selected
@@ -810,8 +941,18 @@ export default function AgendaPage() {
               {selected ? (
                 <button
                   type="button"
+                  className="eq-btn-ghost w-full"
+                  disabled={saving || deleting || reminding}
+                  onClick={sendAppointmentReminder}
+                >
+                  {reminding ? "Enviando lembrete..." : "Enviar lembrete (WhatsApp)"}
+                </button>
+              ) : null}
+              {selected ? (
+                <button
+                  type="button"
                   className="w-full rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm font-medium text-red-800 hover:bg-red-100 disabled:opacity-60"
-                  disabled={saving || deleting}
+                  disabled={saving || deleting || reminding}
                   onClick={onDelete}
                 >
                   {deleting ? "Excluindo..." : "Excluir agendamento"}
