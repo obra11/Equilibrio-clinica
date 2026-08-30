@@ -6,11 +6,12 @@
     "dev": "nest start --watch",
     "build": "nest build",
     "start": "node dist/main.js",
-    "start:prod": "prisma db push --skip-generate && node dist/main.js",
+    "start:prod": "prisma db push --skip-generate && tsx prisma/ensure-admins.ts && node dist/main.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:push": "prisma db push",
-    "prisma:seed": "tsx prisma/seed.ts"
+    "prisma:seed": "tsx prisma/seed.ts",
+    "prisma:ensure-admins": "tsx prisma/ensure-admins.ts"
   },
   "dependencies": {
     "@equilibrio/shared": "*",
