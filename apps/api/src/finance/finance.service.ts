@@ -465,31 +465,88 @@ export class FinanceService {
     return { sent, total: results.length, channels, results };
   }
 
-  async dashboard(role = "ADMIN") {
+  async dashboard(role = "ADMIN", yearParam?: number) {
     const openStatuses = ["ABERTO", "PARCIAL", "VENCIDO"];
     const canSeePayables = role === "ADMIN";
-    const [receivables, payables] = await Promise.all([
-      this.prisma.accountReceivable.findMany({
-        where: { status: { in: openStatuses } },
-        include: { patient: true },
-        orderBy: { dueDate: "asc" },
-      }),
-      canSeePayables
-        ? this.prisma.accountPayable.findMany({
-            where: { status: { in: openStatuses } },
-            orderBy: { dueDate: "asc" },
-          })
-        : Promise.resolve([]),
-    ]);
+    const year = yearParam || new Date().getFullYear();
+    const yearStart = new Date(year, 0, 1, 0, 0, 0, 0);
+    const yearEnd = new Date(year, 11, 31, 23, 59, 59, 999);
 
     const start = new Date();
     start.setHours(0, 0, 0, 0);
     const end = new Date();
     end.setHours(23, 59, 59, 999);
+    const in30 = new Date(start);
+    in30.setDate(in30.getDate() + 30);
+    const in90 = new Date(start);
+    in90.setDate(in90.getDate() + 90);
 
     const remaining = (amount: number, paid: number) => Math.max(0, amount - paid);
     const isOverdue = (due: Date) => due < start;
     const isToday = (due: Date) => due >= start && due <= end;
+
+    const [
+      receivables,
+      payables,
+      yearReceivables,
+      yearPayables,
+      yearInPayments,
+      yearOutPayments,
+    ] = await Promise.all([
+      this.prisma.accountReceivable.findMany({
+        where: { status: { in: openStatuses } },
+        include: { patient: true, category: true },
+        orderBy: { dueDate: "asc" },
+      }),
+      canSeePayables
+        ? this.prisma.accountPayable.findMany({
+            where: { status: { in: openStatuses } },
+            include: { category: true },
+            orderBy: { dueDate: "asc" },
+          })
+        : Promise.resolve([]),
+      this.prisma.accountReceivable.findMany({
+        where: {
+          dueDate: { gte: yearStart, lte: yearEnd },
+          status: { not: "CANCELADO" },
+        },
+        include: {
+          category: true,
+          appointment: { include: { serviceType: true } },
+        },
+      }),
+      canSeePayables
+        ? this.prisma.accountPayable.findMany({
+            where: {
+              dueDate: { gte: yearStart, lte: yearEnd },
+              status: { not: "CANCELADO" },
+            },
+            include: { category: true },
+          })
+        : Promise.resolve([]),
+      this.prisma.payment.findMany({
+        where: {
+          receivableId: { not: null },
+          paidAt: { gte: yearStart, lte: yearEnd },
+        },
+        include: {
+          receivable: {
+            include: {
+              category: true,
+              appointment: { include: { serviceType: true } },
+            },
+          },
+        },
+      }),
+      canSeePayables
+        ? this.prisma.payment.findMany({
+            where: {
+              payableId: { not: null },
+              paidAt: { gte: yearStart, lte: yearEnd },
+            },
+          })
+        : Promise.resolve([]),
+    ]);
 
     const receberAbertoCents = receivables.reduce(
       (s, r) => s + remaining(r.amountCents, r.paidCents),
@@ -504,6 +561,15 @@ export class FinanceService {
     const pagarVencido = payables.filter((p) => isOverdue(p.dueDate));
     const receberHoje = receivables.filter((r) => isToday(r.dueDate));
     const pagarHoje = payables.filter((p) => isToday(p.dueDate));
+
+    const receberVencidoCents = receberVencido.reduce(
+      (s, r) => s + remaining(r.amountCents, r.paidCents),
+      0,
+    );
+    const pagarVencidoCents = pagarVencido.reduce(
+      (s, p) => s + remaining(p.amountCents, p.paidCents),
+      0,
+    );
 
     const debtorsMap = new Map<
       string,
@@ -524,20 +590,147 @@ export class FinanceService {
       cur.items += 1;
       debtorsMap.set(key, cur);
     }
-
     const debtors = Array.from(debtorsMap.values()).sort((a, b) => b.totalCents - a.totalCents);
 
+    // --- Indicadores ---
+    const inadimplenciaPct =
+      receberAbertoCents > 0
+        ? Math.round((receberVencidoCents / receberAbertoCents) * 1000) / 10
+        : 0;
+
+    const yearBilledCents = yearReceivables.reduce((s, r) => s + r.amountCents, 0);
+    const yearReceivedCents = yearInPayments.reduce((s, p) => s + p.amountCents, 0);
+    const yearPaidOutCents = yearOutPayments.reduce((s, p) => s + p.amountCents, 0);
+    const yearReceivablePaidOnTitles = yearReceivables.reduce((s, r) => s + r.paidCents, 0);
+    const taxaRecebimentoPct =
+      yearBilledCents > 0
+        ? Math.round((yearReceivablePaidOnTitles / yearBilledCents) * 1000) / 10
+        : 0;
+    const ticketMedioCents =
+      yearReceivables.length > 0
+        ? Math.round(yearBilledCents / yearReceivables.length)
+        : 0;
+
+    // Fluxo mensal do ano
+    const cashFlowMonths = Array.from({ length: 12 }, (_, month) => {
+      const label = new Date(year, month, 1).toLocaleDateString("pt-BR", {
+        month: "short",
+      });
+      let inCents = 0;
+      let outCents = 0;
+      let projectedInCents = 0;
+      let projectedOutCents = 0;
+
+      for (const p of yearInPayments) {
+        if (new Date(p.paidAt).getMonth() === month) inCents += p.amountCents;
+      }
+      for (const p of yearOutPayments) {
+        if (new Date(p.paidAt).getMonth() === month) outCents += p.amountCents;
+      }
+      for (const r of yearReceivables) {
+        if (new Date(r.dueDate).getMonth() === month) {
+          projectedInCents += remaining(r.amountCents, r.paidCents);
+        }
+      }
+      for (const p of yearPayables) {
+        if (new Date(p.dueDate).getMonth() === month) {
+          projectedOutCents += remaining(p.amountCents, p.paidCents);
+        }
+      }
+
+      return {
+        month: month + 1,
+        label: label.replace(".", ""),
+        inCents,
+        outCents,
+        projectedInCents,
+        projectedOutCents,
+        netCents: inCents - outCents,
+        projectedNetCents: inCents - outCents + projectedInCents - projectedOutCents,
+      };
+    });
+
+    const byCategoryMap = new Map<
+      string,
+      { name: string; billedCents: number; receivedCents: number; openCents: number }
+    >();
+    for (const r of yearReceivables) {
+      const name = r.category?.name || "Sem categoria";
+      const cur = byCategoryMap.get(name) || {
+        name,
+        billedCents: 0,
+        receivedCents: 0,
+        openCents: 0,
+      };
+      cur.billedCents += r.amountCents;
+      cur.receivedCents += r.paidCents;
+      cur.openCents += remaining(r.amountCents, r.paidCents);
+      byCategoryMap.set(name, cur);
+    }
+    const byCategory = Array.from(byCategoryMap.values()).sort(
+      (a, b) => b.billedCents - a.billedCents,
+    );
+
+    const byServiceMap = new Map<
+      string,
+      { name: string; billedCents: number; receivedCents: number; count: number }
+    >();
+    for (const r of yearReceivables) {
+      const name =
+        r.appointment?.serviceType?.name ||
+        (r.description?.split("—")[0]?.trim() || "Outros / avulso");
+      const cur = byServiceMap.get(name) || {
+        name,
+        billedCents: 0,
+        receivedCents: 0,
+        count: 0,
+      };
+      cur.billedCents += r.amountCents;
+      cur.receivedCents += r.paidCents;
+      cur.count += 1;
+      byServiceMap.set(name, cur);
+    }
+    const byServiceType = Array.from(byServiceMap.values()).sort(
+      (a, b) => b.billedCents - a.billedCents,
+    );
+
+    const futurosReceber = receivables
+      .filter((r) => r.dueDate > end && r.dueDate <= in90)
+      .map((r) => ({
+        id: r.id,
+        description: r.description,
+        dueDate: r.dueDate,
+        remainingCents: remaining(r.amountCents, r.paidCents),
+        patientName: r.patient?.fullName || null,
+        within30: r.dueDate <= in30,
+      }))
+      .sort((a, b) => +new Date(a.dueDate) - +new Date(b.dueDate));
+
+    const futurosPagar = payables
+      .filter((p) => p.dueDate > end && p.dueDate <= in90)
+      .map((p) => ({
+        id: p.id,
+        description: p.description,
+        dueDate: p.dueDate,
+        remainingCents: remaining(p.amountCents, p.paidCents),
+        vendor: p.vendor || null,
+        within30: p.dueDate <= in30,
+      }))
+      .sort((a, b) => +new Date(a.dueDate) - +new Date(b.dueDate));
+
+    const futuros30ReceberCents = futurosReceber
+      .filter((f) => f.within30)
+      .reduce((s, f) => s + f.remainingCents, 0);
+    const futuros30PagarCents = futurosPagar
+      .filter((f) => f.within30)
+      .reduce((s, f) => s + f.remainingCents, 0);
+
     return {
+      year,
       receberAbertoCents,
       pagarAbertoCents,
-      receberVencidoCents: receberVencido.reduce(
-        (s, r) => s + remaining(r.amountCents, r.paidCents),
-        0,
-      ),
-      pagarVencidoCents: pagarVencido.reduce(
-        (s, p) => s + remaining(p.amountCents, p.paidCents),
-        0,
-      ),
+      receberVencidoCents,
+      pagarVencidoCents,
       receberHojeCents: receberHoje.reduce(
         (s, r) => s + remaining(r.amountCents, r.paidCents),
         0,
@@ -550,6 +743,23 @@ export class FinanceService {
       debtors: debtors.slice(0, 10),
       openReceivablesCount: receivables.length,
       openPayablesCount: payables.length,
+      indicators: {
+        inadimplenciaPct,
+        taxaRecebimentoPct,
+        ticketMedioCents,
+        yearBilledCents,
+        yearReceivedCents,
+        yearPaidOutCents,
+        yearNetCents: yearReceivedCents - yearPaidOutCents,
+        futuros30ReceberCents,
+        futuros30PagarCents,
+        saldoProjetado30Cents: futuros30ReceberCents - futuros30PagarCents,
+      },
+      cashFlowMonths,
+      byCategory,
+      byServiceType,
+      futurosReceber: futurosReceber.slice(0, 15),
+      futurosPagar: futurosPagar.slice(0, 15),
     };
   }
 }

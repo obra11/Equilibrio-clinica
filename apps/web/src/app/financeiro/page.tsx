@@ -53,6 +53,7 @@ type ProfessionalOption = {
 };
 
 type Dashboard = {
+  year?: number;
   receberAbertoCents: number;
   pagarAbertoCents: number;
   receberVencidoCents: number;
@@ -71,6 +72,56 @@ type Dashboard = {
   }>;
   openReceivablesCount: number;
   openPayablesCount: number;
+  indicators?: {
+    inadimplenciaPct: number;
+    taxaRecebimentoPct: number;
+    ticketMedioCents: number;
+    yearBilledCents: number;
+    yearReceivedCents: number;
+    yearPaidOutCents: number;
+    yearNetCents: number;
+    futuros30ReceberCents: number;
+    futuros30PagarCents: number;
+    saldoProjetado30Cents: number;
+  };
+  cashFlowMonths?: Array<{
+    month: number;
+    label: string;
+    inCents: number;
+    outCents: number;
+    projectedInCents: number;
+    projectedOutCents: number;
+    netCents: number;
+    projectedNetCents: number;
+  }>;
+  byCategory?: Array<{
+    name: string;
+    billedCents: number;
+    receivedCents: number;
+    openCents: number;
+  }>;
+  byServiceType?: Array<{
+    name: string;
+    billedCents: number;
+    receivedCents: number;
+    count: number;
+  }>;
+  futurosReceber?: Array<{
+    id: string;
+    description: string;
+    dueDate: string;
+    remainingCents: number;
+    patientName?: string | null;
+    within30: boolean;
+  }>;
+  futurosPagar?: Array<{
+    id: string;
+    description: string;
+    dueDate: string;
+    remainingCents: number;
+    vendor?: string | null;
+    within30: boolean;
+  }>;
 };
 
 type Tab = "dashboard" | "receber" | "pagar";
@@ -161,6 +212,7 @@ export default function FinanceiroPage() {
     email?: { ok: boolean; status: string; detail?: string };
     whatsapp?: { ok: boolean; status: string; detail?: string; waUrl?: string };
   }> | null>(null);
+  const [analyticsYear, setAnalyticsYear] = useState(() => new Date().getFullYear());
 
   async function loadOverduePreview() {
     try {
@@ -231,7 +283,7 @@ export default function FinanceiroPage() {
     setLoading(true);
     try {
       const [dash, r, p, pats, pros, cats] = await Promise.all([
-        api<Dashboard>("/finance/dashboard"),
+        api<Dashboard>(`/finance/dashboard?year=${analyticsYear}`),
         api<Receivable[]>("/finance/receivables"),
         canSeePayables ? api<Payable[]>("/finance/payables") : Promise.resolve([] as Payable[]),
         api<Patient[]>("/patients"),
@@ -267,7 +319,7 @@ export default function FinanceiroPage() {
       return;
     }
     load().catch((e) => setError(e.message));
-  }, [router, role]);
+  }, [router, role, analyticsYear]);
 
   const filteredReceivables = useMemo(() => {
     const todayStart = startOfToday();
@@ -409,14 +461,47 @@ export default function FinanceiroPage() {
         <div>
           <h1 className="font-display text-3xl text-olive">Financeiro</h1>
           <p className="mt-1 text-sm text-olive-muted">
-            Resumo, alertas do dia e lançamentos a receber/pagar
+            Fluxo de caixa, indicadores e lançamentos a receber/pagar
           </p>
         </div>
-        {tab !== "dashboard" ? (
-          <button type="button" className="eq-btn" onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "Fechar formulário" : "Novo lançamento"}
-          </button>
-        ) : null}
+        <div className="flex flex-wrap gap-2">
+          {tab === "dashboard" ? (
+            <>
+              <label className="flex items-center gap-2 text-sm text-olive">
+                Ano
+                <select
+                  className="eq-input w-28 py-1"
+                  value={analyticsYear}
+                  onChange={(e) => setAnalyticsYear(Number(e.target.value))}
+                >
+                  {[0, 1, 2].map((offset) => {
+                    const y = new Date().getFullYear() - offset;
+                    return (
+                      <option key={y} value={y}>
+                        {y}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="eq-btn"
+                onClick={() => {
+                  setTab("receber");
+                  setShowForm(true);
+                  setListFilter("abertos");
+                }}
+              >
+                Novo lançamento futuro
+              </button>
+            </>
+          ) : (
+            <button type="button" className="eq-btn" onClick={() => setShowForm((v) => !v)}>
+              {showForm ? "Fechar formulário" : "Novo lançamento"}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mb-6 flex flex-wrap gap-2">
@@ -502,6 +587,263 @@ export default function FinanceiroPage() {
                 Ver contas vencidas
               </button>
             </div>
+          </div>
+
+          {dashboard.indicators ? (
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="eq-card">
+                <p className="eq-label">Inadimplência</p>
+                <p className="font-display text-3xl text-red-700">
+                  {dashboard.indicators.inadimplenciaPct}%
+                </p>
+                <p className="mt-1 text-xs text-olive-muted">
+                  Vencido / total em aberto a receber
+                </p>
+              </div>
+              <div className="eq-card">
+                <p className="eq-label">Taxa de recebimento ({analyticsYear})</p>
+                <p className="font-display text-3xl text-olive">
+                  {dashboard.indicators.taxaRecebimentoPct}%
+                </p>
+                <p className="mt-1 text-xs text-olive-muted">
+                  Pago / faturado no ano
+                </p>
+              </div>
+              <div className="eq-card">
+                <p className="eq-label">Ticket médio</p>
+                <p className="font-display text-3xl text-olive">
+                  {formatMoney(dashboard.indicators.ticketMedioCents)}
+                </p>
+                <p className="mt-1 text-xs text-olive-muted">Por lançamento a receber no ano</p>
+              </div>
+              <div className="eq-card">
+                <p className="eq-label">Resultado do ano</p>
+                <p
+                  className={`font-display text-3xl ${
+                    dashboard.indicators.yearNetCents >= 0 ? "text-olive" : "text-red-700"
+                  }`}
+                >
+                  {formatMoney(dashboard.indicators.yearNetCents)}
+                </p>
+                <p className="mt-1 text-xs text-olive-muted">
+                  Entradas {formatMoney(dashboard.indicators.yearReceivedCents)} − saídas{" "}
+                  {formatMoney(dashboard.indicators.yearPaidOutCents)}
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {dashboard.cashFlowMonths?.length ? (
+            <section className="eq-card">
+              <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+                <div>
+                  <h2 className="font-display text-xl text-olive">
+                    Fluxo de caixa {analyticsYear}
+                  </h2>
+                  <p className="text-sm text-olive-muted">
+                    Barras: entradas (recebido) × saídas (pago). Linha guia: a receber em aberto no mês.
+                  </p>
+                </div>
+                {dashboard.indicators ? (
+                  <p className="text-xs text-olive-muted">
+                    Próx. 30 dias: receber {formatMoney(dashboard.indicators.futuros30ReceberCents)} ·
+                    pagar {formatMoney(dashboard.indicators.futuros30PagarCents)} · saldo{" "}
+                    {formatMoney(dashboard.indicators.saldoProjetado30Cents)}
+                  </p>
+                ) : null}
+              </div>
+              <div className="grid grid-cols-12 items-end gap-1 sm:gap-2" style={{ minHeight: 160 }}>
+                {(() => {
+                  const maxVal = Math.max(
+                    1,
+                    ...dashboard.cashFlowMonths.map((m) =>
+                      Math.max(m.inCents, m.outCents, m.projectedInCents),
+                    ),
+                  );
+                  return dashboard.cashFlowMonths.map((m) => (
+                    <div key={m.month} className="flex flex-col items-center gap-1">
+                      <div className="flex h-36 w-full items-end justify-center gap-0.5">
+                        <div
+                          className="w-1/3 rounded-t bg-olive/80"
+                          style={{ height: `${Math.max(4, (m.inCents / maxVal) * 100)}%` }}
+                          title={`Entradas: ${formatMoney(m.inCents)}`}
+                        />
+                        <div
+                          className="w-1/3 rounded-t bg-red-400/80"
+                          style={{ height: `${Math.max(4, (m.outCents / maxVal) * 100)}%` }}
+                          title={`Saídas: ${formatMoney(m.outCents)}`}
+                        />
+                        <div
+                          className="w-1/3 rounded-t bg-gold/70"
+                          style={{
+                            height: `${Math.max(4, (m.projectedInCents / maxVal) * 100)}%`,
+                          }}
+                          title={`A receber: ${formatMoney(m.projectedInCents)}`}
+                        />
+                      </div>
+                      <span className="text-[10px] uppercase text-olive-muted">{m.label}</span>
+                    </div>
+                  ));
+                })()}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-4 text-xs text-olive-muted">
+                <span className="inline-flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-sm bg-olive/80" /> Entradas
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-sm bg-red-400/80" /> Saídas
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="h-2 w-2 rounded-sm bg-gold/70" /> A receber (em aberto)
+                </span>
+              </div>
+            </section>
+          ) : null}
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <section className="eq-card">
+              <h2 className="mb-3 font-display text-xl text-olive">
+                Arrecadação por tipo de serviço ({analyticsYear})
+              </h2>
+              {!dashboard.byServiceType?.length ? (
+                <p className="text-sm text-olive-muted">
+                  Sem dados no ano. Vincule lançamentos a atendimentos ou use categorias.
+                </p>
+              ) : (
+                <div className="space-y-2 text-sm">
+                  {dashboard.byServiceType.slice(0, 8).map((s) => {
+                    const max = dashboard.byServiceType![0].billedCents || 1;
+                    const pct = Math.round((s.billedCents / max) * 100);
+                    return (
+                      <div key={s.name}>
+                        <div className="mb-1 flex justify-between gap-2">
+                          <span className="font-medium text-olive">{s.name}</span>
+                          <span className="text-olive-muted">
+                            {formatMoney(s.billedCents)} · {s.count}×
+                          </span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-cream">
+                          <div className="h-full rounded-full bg-olive" style={{ width: `${pct}%` }} />
+                        </div>
+                        <p className="mt-0.5 text-[10px] text-olive-muted">
+                          Recebido {formatMoney(s.receivedCents)}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+            <section className="eq-card">
+              <h2 className="mb-3 font-display text-xl text-olive">
+                Por categoria ({analyticsYear})
+              </h2>
+              {!dashboard.byCategory?.length ? (
+                <p className="text-sm text-olive-muted">Nenhuma categoria no período.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-borderEq text-xs uppercase text-olive-muted">
+                        <th className="py-2 pr-2">Categoria</th>
+                        <th className="py-2 pr-2">Faturado</th>
+                        <th className="py-2 pr-2">Recebido</th>
+                        <th className="py-2">Aberto</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dashboard.byCategory.map((c) => (
+                        <tr key={c.name} className="border-b border-borderEq/60">
+                          <td className="py-2 pr-2 font-medium">{c.name}</td>
+                          <td className="py-2 pr-2">{formatMoney(c.billedCents)}</td>
+                          <td className="py-2 pr-2">{formatMoney(c.receivedCents)}</td>
+                          <td className="py-2">{formatMoney(c.openCents)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <section className="eq-card">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h2 className="font-display text-xl text-olive">Lançamentos futuros (90 dias)</h2>
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-olive underline"
+                  onClick={() => {
+                    setTab("receber");
+                    setShowForm(true);
+                  }}
+                >
+                  Lançar a receber
+                </button>
+              </div>
+              {!dashboard.futurosReceber?.length ? (
+                <p className="text-sm text-olive-muted">Nenhum a receber futuro nos próximos 90 dias.</p>
+              ) : (
+                <div className="max-h-64 space-y-2 overflow-y-auto text-sm">
+                  {dashboard.futurosReceber.map((f) => (
+                    <div
+                      key={f.id}
+                      className="flex justify-between gap-2 border-b border-borderEq/70 py-2"
+                    >
+                      <div>
+                        <p className="font-medium">{f.patientName || f.description}</p>
+                        <p className="text-xs text-olive-muted">
+                          {formatDate(f.dueDate)}
+                          {f.within30 ? " · 30 dias" : ""} · {f.description}
+                        </p>
+                      </div>
+                      <p className="font-semibold text-olive">{formatMoney(f.remainingCents)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+            <section className="eq-card">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h2 className="font-display text-xl text-olive">Contas a pagar futuras</h2>
+                {canSeePayables ? (
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-olive underline"
+                    onClick={() => {
+                      setTab("pagar");
+                      setShowForm(true);
+                    }}
+                  >
+                    Lançar a pagar
+                  </button>
+                ) : null}
+              </div>
+              {!canSeePayables ? (
+                <p className="text-sm text-olive-muted">Disponível para administradores.</p>
+              ) : !dashboard.futurosPagar?.length ? (
+                <p className="text-sm text-olive-muted">Nenhuma conta futura nos próximos 90 dias.</p>
+              ) : (
+                <div className="max-h-64 space-y-2 overflow-y-auto text-sm">
+                  {dashboard.futurosPagar.map((f) => (
+                    <div
+                      key={f.id}
+                      className="flex justify-between gap-2 border-b border-borderEq/70 py-2"
+                    >
+                      <div>
+                        <p className="font-medium">{f.vendor || f.description}</p>
+                        <p className="text-xs text-olive-muted">
+                          {formatDate(f.dueDate)}
+                          {f.within30 ? " · 30 dias" : ""}
+                        </p>
+                      </div>
+                      <p className="font-semibold text-red-700">{formatMoney(f.remainingCents)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">

@@ -10,8 +10,12 @@ export class FinanceController {
 
   @Roles("ADMIN", "RECEPCAO")
   @Get("dashboard")
-  dashboard(@Req() req: { user: AuthUser }) {
-    return this.finance.dashboard(req.user.role);
+  dashboard(
+    @Req() req: { user: AuthUser },
+    @Query("year") year?: string,
+  ) {
+    const y = year ? Number(year) : new Date().getFullYear();
+    return this.finance.dashboard(req.user.role, Number.isFinite(y) ? y : undefined);
   }
 
   @Roles("ADMIN", "RECEPCAO")
