@@ -150,9 +150,21 @@ export default function PilatesPage() {
                     <li>• Sem inscritos</li>
                   ) : (
                     c.enrollments.slice(0, 4).map((e) => (
-                      <li key={e.id}>
-                        • {e.patient.fullName}
-                        <span className="ml-1 text-xs opacity-70">({e.status})</span>
+                      <li key={e.id} className="flex flex-wrap items-baseline gap-x-2">
+                        <span>• </span>
+                        <Link
+                          href={`/pacientes/${e.patient.id}`}
+                          className="font-medium text-olive underline-offset-2 hover:underline"
+                        >
+                          {e.patient.fullName}
+                        </Link>
+                        <span className="text-xs opacity-70">({e.status})</span>
+                        <Link
+                          href={`/pacientes/${e.patient.id}`}
+                          className="text-[10px] font-semibold text-olive underline"
+                        >
+                          Prontuário
+                        </Link>
                       </li>
                     ))
                   )}

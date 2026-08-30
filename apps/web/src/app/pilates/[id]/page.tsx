@@ -556,7 +556,7 @@ export default function AulaPilatesPage() {
                 <div>
                   <h2 className="font-display text-xl text-olive">Alunos inscritos</h2>
                   <p className="text-xs text-olive-muted">
-                    Marque os alunos e envie o lembrete WhatsApp só para eles
+                    Clique no nome ou em Prontuário para abrir evolução e anamnese
                   </p>
                 </div>
                 <p className="text-sm font-semibold text-gold">
@@ -651,23 +651,35 @@ export default function AulaPilatesPage() {
                               title="Selecionar para lembrete"
                             />
                             <div className="min-w-0">
-                              <p className="font-medium text-olive">
-                                {e.patient.fullName}
-                                {e.isMakeup ? (
-                                  <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-gold">
-                                    Reposição
-                                  </span>
-                                ) : null}
-                              </p>
                               <Link
                                 href={`/pacientes/${e.patient.id}`}
-                                className="text-xs font-semibold text-olive underline-offset-2 hover:underline"
+                                className="font-medium text-olive underline-offset-2 hover:underline"
+                                title="Abrir prontuário"
                               >
-                                Abrir prontuário →
+                                {e.patient.fullName}
                               </Link>
+                              {e.isMakeup ? (
+                                <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-gold">
+                                  Reposição
+                                </span>
+                              ) : null}
+                              <p>
+                                <Link
+                                  href={`/pacientes/${e.patient.id}`}
+                                  className="text-xs font-semibold text-olive underline-offset-2 hover:underline"
+                                >
+                                  Abrir prontuário →
+                                </Link>
+                              </p>
                             </div>
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
+                            <Link
+                              href={`/pacientes/${e.patient.id}`}
+                              className="eq-btn-ghost px-2 py-1 text-xs"
+                            >
+                              Prontuário
+                            </Link>
                             {canRemind ? (
                               <button
                                 type="button"
