@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { api, formatMoney, getToken } from "@/lib/api";
@@ -643,7 +644,17 @@ export default function AgendaPage() {
 
             <form onSubmit={onSave} className="space-y-3">
               <div>
-                <label className="eq-label">Paciente</label>
+                <div className="mb-1 flex items-end justify-between gap-2">
+                  <label className="eq-label mb-0">Paciente</label>
+                  {form.patientId ? (
+                    <Link
+                      href={`/pacientes/${form.patientId}`}
+                      className="text-xs font-semibold text-olive underline-offset-2 hover:underline"
+                    >
+                      Abrir prontuário →
+                    </Link>
+                  ) : null}
+                </div>
                 <select
                   className="eq-input"
                   value={form.patientId}
@@ -656,6 +667,11 @@ export default function AgendaPage() {
                     </option>
                   ))}
                 </select>
+                {form.patientId ? (
+                  <p className="mt-1.5 text-xs text-olive-muted">
+                    No prontuário ficam a anamnese, evoluções e o histórico clínico.
+                  </p>
+                ) : null}
               </div>
               <div>
                 <label className="eq-label">Profissional</label>
