@@ -1,5 +1,14 @@
-import { Injectable } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
+import {
+  ClinicalAttachment,
+  parseClinicalAttachments,
+  withParsedAttachments,
+} from "./clinical-attachments";
 
 @Injectable()
 export class ClinicalService {
@@ -17,10 +26,13 @@ export class ClinicalService {
         include: { professional: true },
         orderBy: { createdAt: "desc" },
       }),
-    ]).then(([notes, assessments]) => ({ notes, assessments }));
+    ]).then(([notes, assessments]) => ({
+      notes: notes.map(withParsedAttachments),
+      assessments: assessments.map(withParsedAttachments),
+    }));
   }
 
-  createNote(data: {
+  async createNote(data: {
     patientId: string;
     professionalId: string;
     appointmentId?: string | null;
@@ -29,7 +41,7 @@ export class ClinicalService {
     assessment?: string | null;
     plan?: string | null;
   }) {
-    return this.prisma.sessionNote.create({
+    const note = await this.prisma.sessionNote.create({
       data: {
         patientId: data.patientId,
         professionalId: data.professionalId,
@@ -41,9 +53,10 @@ export class ClinicalService {
       },
       include: { professional: true },
     });
+    return withParsedAttachments(note);
   }
 
-  createAssessment(data: {
+  async createAssessment(data: {
     patientId: string;
     professionalId: string;
     painVas?: number | null;
@@ -52,7 +65,7 @@ export class ClinicalService {
     functionalTests?: string | null;
     observations?: string | null;
   }) {
-    return this.prisma.physicalAssessment.create({
+    const assessment = await this.prisma.physicalAssessment.create({
       data: {
         patientId: data.patientId,
         professionalId: data.professionalId,
@@ -64,5 +77,80 @@ export class ClinicalService {
       },
       include: { professional: true },
     });
+    return withParsedAttachments(assessment);
+  }
+
+  async addNoteAttachment(
+    id: string,
+    item: Omit<ClinicalAttachment, "createdAt"> & { createdAt?: string },
+  ) {
+    const note = await this.prisma.sessionNote.findUnique({ where: { id } });
+    if (!note) throw new NotFoundException("Evolução não encontrada");
+    const list = parseClinicalAttachments(note.attachments);
+    if (list.length >= 30) {
+      throw new BadRequestException("Máximo de 30 anexos por evolução");
+    }
+    list.push({
+      url: item.url,
+      kind: item.kind,
+      name: item.name,
+      mime: item.mime,
+      createdAt: item.createdAt || new Date().toISOString(),
+    });
+    const updated = await this.prisma.sessionNote.update({
+      where: { id },
+      data: { attachments: JSON.stringify(list) },
+      include: { professional: true },
+    });
+    return withParsedAttachments(updated);
+  }
+
+  async removeNoteAttachment(id: string, url: string) {
+    const note = await this.prisma.sessionNote.findUnique({ where: { id } });
+    if (!note) throw new NotFoundException("Evolução não encontrada");
+    const list = parseClinicalAttachments(note.attachments).filter((a) => a.url !== url);
+    const updated = await this.prisma.sessionNote.update({
+      where: { id },
+      data: { attachments: list.length ? JSON.stringify(list) : null },
+      include: { professional: true },
+    });
+    return withParsedAttachments(updated);
+  }
+
+  async addAssessmentAttachment(
+    id: string,
+    item: Omit<ClinicalAttachment, "createdAt"> & { createdAt?: string },
+  ) {
+    const row = await this.prisma.physicalAssessment.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException("Avaliação não encontrada");
+    const list = parseClinicalAttachments(row.attachments);
+    if (list.length >= 30) {
+      throw new BadRequestException("Máximo de 30 anexos por avaliação");
+    }
+    list.push({
+      url: item.url,
+      kind: item.kind,
+      name: item.name,
+      mime: item.mime,
+      createdAt: item.createdAt || new Date().toISOString(),
+    });
+    const updated = await this.prisma.physicalAssessment.update({
+      where: { id },
+      data: { attachments: JSON.stringify(list) },
+      include: { professional: true },
+    });
+    return withParsedAttachments(updated);
+  }
+
+  async removeAssessmentAttachment(id: string, url: string) {
+    const row = await this.prisma.physicalAssessment.findUnique({ where: { id } });
+    if (!row) throw new NotFoundException("Avaliação não encontrada");
+    const list = parseClinicalAttachments(row.attachments).filter((a) => a.url !== url);
+    const updated = await this.prisma.physicalAssessment.update({
+      where: { id },
+      data: { attachments: list.length ? JSON.stringify(list) : null },
+      include: { professional: true },
+    });
+    return withParsedAttachments(updated);
   }
 }

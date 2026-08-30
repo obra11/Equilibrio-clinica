@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { WhatsappService } from "../whatsapp/whatsapp.service";
+import { withParsedAttachments } from "../clinical/clinical-attachments";
 
 type PatientInput = {
   fullName: string;
@@ -142,8 +143,14 @@ export class PatientsService {
     if (!patient) throw new NotFoundException("Paciente não encontrado");
     return {
       ...patient,
-      sessionNotes: role === "RECEPCAO" ? [] : patient.sessionNotes,
-      assessments: role === "RECEPCAO" ? [] : patient.assessments,
+      sessionNotes:
+        role === "RECEPCAO"
+          ? []
+          : (patient.sessionNotes || []).map(withParsedAttachments),
+      assessments:
+        role === "RECEPCAO"
+          ? []
+          : (patient.assessments || []).map(withParsedAttachments),
       receivables: role === "FISIOTERAPEUTA" ? [] : patient.receivables,
     };
   }

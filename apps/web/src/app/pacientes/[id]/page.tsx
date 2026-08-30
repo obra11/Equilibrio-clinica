@@ -6,6 +6,11 @@ import { useParams, useRouter } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { PatientAvatar } from "@/components/PatientAvatar";
 import { formatCep, formatCpf } from "@/components/PatientForm";
+import {
+  ClinicalAttachments,
+  ClinicalAttachment,
+  uploadPendingAttachments,
+} from "@/components/ClinicalAttachments";
 import { api, formatDateTime, getStoredUser, getToken } from "@/lib/api";
 
 type Appointment = {
@@ -58,6 +63,7 @@ type PatientDetail = {
     objective?: string | null;
     assessment?: string | null;
     plan?: string | null;
+    attachments?: ClinicalAttachment[];
     professional: { fullName: string };
   }>;
   assessments: Array<{
@@ -65,6 +71,7 @@ type PatientDetail = {
     createdAt: string;
     painVas?: number | null;
     romNotes?: string | null;
+    attachments?: ClinicalAttachment[];
     professional: { fullName: string };
   }>;
 };
@@ -102,6 +109,9 @@ export default function PacienteDetailPage() {
   const [painVas, setPainVas] = useState("0");
   const [romNotes, setRomNotes] = useState("");
   const [error, setError] = useState("");
+  const [noteFiles, setNoteFiles] = useState<File[]>([]);
+  const [assessmentFiles, setAssessmentFiles] = useState<File[]>([]);
+  const [savingClinical, setSavingClinical] = useState(false);
 
   async function load() {
     const data = await api<PatientDetail>(`/patients/${id}`);
@@ -173,22 +183,37 @@ export default function PacienteDetailPage() {
       setError("Usuário sem profissional vinculado");
       return;
     }
-    await api("/clinical/notes", {
-      method: "POST",
-      body: JSON.stringify({
-        patientId: id,
-        professionalId: user.professional.id,
-        subjective,
-        objective,
-        assessment,
-        plan,
-      }),
-    });
-    setSubjective("");
-    setObjective("");
-    setAssessment("");
-    setPlan("");
-    await load();
+    setSavingClinical(true);
+    setError("");
+    try {
+      const created = await api<{ id: string }>("/clinical/notes", {
+        method: "POST",
+        body: JSON.stringify({
+          patientId: id,
+          professionalId: user.professional.id,
+          subjective,
+          objective,
+          assessment,
+          plan,
+        }),
+      });
+      if (noteFiles.length) {
+        await uploadPendingAttachments(
+          `/clinical/notes/${created.id}/attachments`,
+          noteFiles,
+        );
+      }
+      setSubjective("");
+      setObjective("");
+      setAssessment("");
+      setPlan("");
+      setNoteFiles([]);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao registrar evolução");
+    } finally {
+      setSavingClinical(false);
+    }
   }
 
   async function saveAssessment(e: FormEvent) {
@@ -197,17 +222,32 @@ export default function PacienteDetailPage() {
       setError("Usuário sem profissional vinculado");
       return;
     }
-    await api("/clinical/assessments", {
-      method: "POST",
-      body: JSON.stringify({
-        patientId: id,
-        professionalId: user.professional.id,
-        painVas: Number(painVas),
-        romNotes,
-      }),
-    });
-    setRomNotes("");
-    await load();
+    setSavingClinical(true);
+    setError("");
+    try {
+      const created = await api<{ id: string }>("/clinical/assessments", {
+        method: "POST",
+        body: JSON.stringify({
+          patientId: id,
+          professionalId: user.professional.id,
+          painVas: Number(painVas),
+          romNotes,
+        }),
+      });
+      if (assessmentFiles.length) {
+        await uploadPendingAttachments(
+          `/clinical/assessments/${created.id}/attachments`,
+          assessmentFiles,
+        );
+      }
+      setRomNotes("");
+      setAssessmentFiles([]);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao salvar avaliação");
+    } finally {
+      setSavingClinical(false);
+    }
   }
 
   if (!patient) {
@@ -314,7 +354,14 @@ export default function PacienteDetailPage() {
           <textarea className="eq-input min-h-20" placeholder="Objetivo" value={objective} onChange={(e) => setObjective(e.target.value)} />
           <textarea className="eq-input min-h-20" placeholder="Avaliação" value={assessment} onChange={(e) => setAssessment(e.target.value)} />
           <textarea className="eq-input min-h-20" placeholder="Plano" value={plan} onChange={(e) => setPlan(e.target.value)} />
-          <button className="eq-btn">Registrar evolução</button>
+          <ClinicalAttachments
+            pendingFiles={noteFiles}
+            onPendingChange={setNoteFiles}
+            disabled={savingClinical}
+          />
+          <button className="eq-btn" disabled={savingClinical}>
+            {savingClinical ? "Salvando..." : "Registrar evolução"}
+          </button>
         </form>
 
         <form onSubmit={saveAssessment} className="eq-card space-y-3">
@@ -324,7 +371,14 @@ export default function PacienteDetailPage() {
             <input className="eq-input" type="number" min={0} max={10} value={painVas} onChange={(e) => setPainVas(e.target.value)} />
           </div>
           <textarea className="eq-input min-h-24" placeholder="ADM / goniometria" value={romNotes} onChange={(e) => setRomNotes(e.target.value)} />
-          <button className="eq-btn">Salvar avaliação</button>
+          <ClinicalAttachments
+            pendingFiles={assessmentFiles}
+            onPendingChange={setAssessmentFiles}
+            disabled={savingClinical}
+          />
+          <button className="eq-btn" disabled={savingClinical}>
+            {savingClinical ? "Salvando..." : "Salvar avaliação"}
+          </button>
         </form>
       </div>
 
@@ -433,6 +487,26 @@ export default function PacienteDetailPage() {
                 {n.objective ? <p>O: {n.objective}</p> : null}
                 {n.assessment ? <p>A: {n.assessment}</p> : null}
                 {n.plan ? <p>P: {n.plan}</p> : null}
+                <div className="mt-2">
+                  <ClinicalAttachments
+                    compact
+                    items={n.attachments || []}
+                    uploadPath={`/clinical/notes/${n.id}/attachments`}
+                    deletePath={`/clinical/notes/${n.id}/attachments`}
+                    onChanged={(attachments) =>
+                      setPatient((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              sessionNotes: prev.sessionNotes.map((x) =>
+                                x.id === n.id ? { ...x, attachments } : x,
+                              ),
+                            }
+                          : prev,
+                      )
+                    }
+                  />
+                </div>
               </div>
             ))}
             {patient.assessments.map((a) => (
@@ -442,6 +516,26 @@ export default function PacienteDetailPage() {
                 </p>
                 <p>VAS: {a.painVas ?? "—"}</p>
                 {a.romNotes ? <p>{a.romNotes}</p> : null}
+                <div className="mt-2">
+                  <ClinicalAttachments
+                    compact
+                    items={a.attachments || []}
+                    uploadPath={`/clinical/assessments/${a.id}/attachments`}
+                    deletePath={`/clinical/assessments/${a.id}/attachments`}
+                    onChanged={(attachments) =>
+                      setPatient((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              assessments: prev.assessments.map((x) =>
+                                x.id === a.id ? { ...x, attachments } : x,
+                              ),
+                            }
+                          : prev,
+                      )
+                    }
+                  />
+                </div>
               </div>
             ))}
           </div>
