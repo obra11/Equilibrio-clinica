@@ -655,7 +655,7 @@ export class ClassesService {
           return n;
         }),
       );
-      copies += nums.reduce((a, b) => a + b, 0);
+      copies += nums.reduce((a, b) => a + b, 0 as number);
     }
 
     return {
