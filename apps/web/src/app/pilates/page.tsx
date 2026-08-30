@@ -55,7 +55,9 @@ export default function PilatesPage() {
   const router = useRouter();
   const [classes, setClasses] = useState<ClassSession[]>([]);
   const [error, setError] = useState("");
+  const [syncMsg, setSyncMsg] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [syncingGroupId, setSyncingGroupId] = useState<string | null>(null);
 
   async function load() {
     const from = new Date();
@@ -82,6 +84,7 @@ export default function PilatesPage() {
     );
     if (!ok) return;
     setError("");
+    setSyncMsg("");
     setDeletingId(c.id);
     try {
       await api(`/classes/${c.id}`, { method: "DELETE" });
@@ -90,6 +93,24 @@ export default function PilatesPage() {
       setError(err instanceof Error ? err.message : "Erro ao excluir");
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  async function syncSeries(c: ClassSession) {
+    if (!c.seriesGroupId) return;
+    setError("");
+    setSyncMsg("");
+    setSyncingGroupId(c.seriesGroupId);
+    try {
+      const res = await api<{ detail: string }>(`/classes/${c.id}/sync-enrollments`, {
+        method: "POST",
+      });
+      setSyncMsg(res.detail || "Turma sincronizada.");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao sincronizar turma");
+    } finally {
+      setSyncingGroupId(null);
     }
   }
 
@@ -108,6 +129,7 @@ export default function PilatesPage() {
       </div>
 
       {error ? <p className="mb-4 text-sm text-red-700">{error}</p> : null}
+      {syncMsg ? <p className="mb-4 text-sm text-olive">{syncMsg}</p> : null}
 
       {classes.length === 0 ? (
         <div className="eq-card py-12 text-center">
@@ -172,21 +194,35 @@ export default function PilatesPage() {
                     <li className="text-xs">+ {c.enrollments.length - 4} aluno(s)</li>
                   ) : null}
                 </ul>
-                <div className="flex gap-2 border-t border-borderEq pt-3">
-                  <Link
-                    href={`/pilates/${c.id}`}
-                    className="eq-btn-ghost flex-1 text-center text-xs"
-                  >
-                    Abrir / Editar
-                  </Link>
-                  <button
-                    type="button"
-                    className="flex-1 rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-700 transition hover:bg-red-50"
-                    disabled={deletingId === c.id}
-                    onClick={() => onDelete(c)}
-                  >
-                    {deletingId === c.id ? "..." : "Excluir"}
-                  </button>
+                <div className="flex flex-col gap-2 border-t border-borderEq pt-3">
+                  {c.seriesGroupId ? (
+                    <button
+                      type="button"
+                      className="eq-btn-ghost w-full text-xs"
+                      disabled={syncingGroupId === c.seriesGroupId}
+                      onClick={() => void syncSeries(c)}
+                    >
+                      {syncingGroupId === c.seriesGroupId
+                        ? "Sincronizando turma..."
+                        : "Espelhar alunos em todas as datas"}
+                    </button>
+                  ) : null}
+                  <div className="flex gap-2">
+                    <Link
+                      href={`/pilates/${c.id}`}
+                      className="eq-btn-ghost flex-1 text-center text-xs"
+                    >
+                      Abrir / Editar
+                    </Link>
+                    <button
+                      type="button"
+                      className="flex-1 rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-700 transition hover:bg-red-50"
+                      disabled={deletingId === c.id}
+                      onClick={() => onDelete(c)}
+                    >
+                      {deletingId === c.id ? "..." : "Excluir"}
+                    </button>
+                  </div>
                 </div>
               </article>
             );

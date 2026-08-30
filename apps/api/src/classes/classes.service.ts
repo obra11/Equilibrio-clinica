@@ -478,22 +478,89 @@ export class ClassesService {
     const shouldReplicate =
       !isMakeup &&
       !!session.seriesGroupId &&
-      (status === "CONFIRMADO" || status === "LISTA_ESPERA");
+      (status === "CONFIRMADO" || status === "LISTA_ESPERA" || status === "PRESENTE");
 
     if (shouldReplicate && session.seriesGroupId) {
-      replicated = await this.replicateEnrollmentToSeries(
-        session,
-        patientId,
-        status,
-      );
+      // União de todos os regulares da série (não só o aluno novo) — corrige turmas antigas
+      const sync = await this.syncSeriesEnrollments(classSessionId);
+      replicated = sync.copies;
     }
 
     return { ...enrollment, replicated };
   }
 
-  /** Replica aluno regular para todas as aulas da mesma turma (série). */
+  /**
+   * Garante um aluno regular em uma aula da série (respeita reposição e presença já lançada).
+   * @returns 1 se criou/atualizou, 0 se pulou
+   */
+  private async ensureRegularOnSession(
+    sibling: {
+      id: string;
+      capacity: number;
+      enrollments: Array<{
+        id: string;
+        patientId: string;
+        status: string;
+        isMakeup: boolean;
+      }>;
+    },
+    patientId: string,
+    status: string,
+  ) {
+    const already = sibling.enrollments.find((e) => e.patientId === patientId);
+    if (already?.isMakeup) return 0;
+
+    let nextStatus = status === "PRESENTE" ? "CONFIRMADO" : status;
+    if (nextStatus === "CONFIRMADO") {
+      const filled = sibling.enrollments.filter(
+        (e) =>
+          e.patientId !== patientId &&
+          (e.status === "CONFIRMADO" || e.status === "PRESENTE"),
+      ).length;
+      if (!already && filled >= sibling.capacity) {
+        nextStatus = "LISTA_ESPERA";
+      }
+    }
+
+    if (already && ["PRESENTE", "FALTOU", "CANCELADO"].includes(already.status)) {
+      if (already.isMakeup) {
+        await this.prisma.classEnrollment.update({
+          where: { id: already.id },
+          data: { isMakeup: false },
+        });
+      }
+      return 1;
+    }
+
+    if (
+      already &&
+      already.status === nextStatus &&
+      !already.isMakeup
+    ) {
+      return 0;
+    }
+
+    await this.prisma.classEnrollment.upsert({
+      where: {
+        classSessionId_patientId: {
+          classSessionId: sibling.id,
+          patientId,
+        },
+      },
+      create: {
+        classSessionId: sibling.id,
+        patientId,
+        status: nextStatus,
+        isMakeup: false,
+      },
+      update: { status: nextStatus, isMakeup: false },
+    });
+    return 1;
+  }
+
+  /** Replica um aluno regular para todas as outras aulas da mesma turma. */
   private async replicateEnrollmentToSeries(
-    session: { id: string; seriesGroupId: string | null; startsAt: Date },
+    session: { id: string; seriesGroupId: string | null },
     patientId: string,
     status: string,
   ) {
@@ -510,59 +577,18 @@ export class ClassesService {
 
     let replicated = 0;
     for (const sibling of siblings) {
-      const already = sibling.enrollments.find((e) => e.patientId === patientId);
-      if (already?.isMakeup) continue;
-
-      let nextStatus = status;
-      if (status === "CONFIRMADO") {
-        const filled = sibling.enrollments.filter(
-          (e) =>
-            e.patientId !== patientId &&
-            (e.status === "CONFIRMADO" || e.status === "PRESENTE"),
-        ).length;
-        if (!already && filled >= sibling.capacity) {
-          nextStatus = "LISTA_ESPERA";
-        }
-      }
-
-      // Não sobrescreve presença/falta/cancelamento já lançado
-      if (already && ["PRESENTE", "FALTOU", "CANCELADO"].includes(already.status)) {
-        await this.prisma.classEnrollment.update({
-          where: { id: already.id },
-          data: { isMakeup: false },
-        });
-        replicated += 1;
-        continue;
-      }
-
-      await this.prisma.classEnrollment.upsert({
-        where: {
-          classSessionId_patientId: {
-            classSessionId: sibling.id,
-            patientId,
-          },
-        },
-        create: {
-          classSessionId: sibling.id,
-          patientId,
-          status: nextStatus,
-          isMakeup: false,
-        },
-        update: { status: nextStatus, isMakeup: false },
-      });
-      replicated += 1;
+      replicated += await this.ensureRegularOnSession(sibling, patientId, status);
     }
     return replicated;
   }
 
   /**
-   * Espelha alunos regulares desta aula em todas as outras da mesma série.
-   * Útil quando a turma já existia antes da replicação automática.
+   * Une todos os alunos regulares de qualquer data da série e espelha em todas as aulas.
+   * Assim, quem só estava em 01/09 passa a aparecer em 03/09, 06/09, etc.
    */
   async syncSeriesEnrollments(classSessionId: string) {
     const session = await this.prisma.classSession.findUnique({
       where: { id: classSessionId },
-      include: { enrollments: true },
     });
     if (!session) throw new NotFoundException("Aula não encontrada");
     if (!session.seriesGroupId) {
@@ -571,26 +597,51 @@ export class ClassesService {
       );
     }
 
-    const regulars = session.enrollments.filter(
-      (e) =>
-        !e.isMakeup &&
-        (e.status === "CONFIRMADO" || e.status === "LISTA_ESPERA" || e.status === "PRESENTE"),
-    );
+    const allSessions = await this.prisma.classSession.findMany({
+      where: { seriesGroupId: session.seriesGroupId },
+      include: { enrollments: true },
+      orderBy: { startsAt: "asc" },
+    });
 
-    let students = 0;
+    const regulars = new Map<string, string>();
+    for (const s of allSessions) {
+      for (const e of s.enrollments) {
+        if (e.isMakeup) continue;
+        if (!["CONFIRMADO", "LISTA_ESPERA", "PRESENTE"].includes(e.status)) continue;
+        const st = e.status === "PRESENTE" ? "CONFIRMADO" : e.status;
+        const prev = regulars.get(e.patientId);
+        if (!prev || (prev === "LISTA_ESPERA" && st === "CONFIRMADO")) {
+          regulars.set(e.patientId, st);
+        }
+      }
+    }
+
     let copies = 0;
-    for (const e of regulars) {
-      const status = e.status === "PRESENTE" ? "CONFIRMADO" : e.status;
-      const n = await this.replicateEnrollmentToSeries(session, e.patientId, status);
-      students += 1;
-      copies += n;
+    for (const [patientId, status] of regulars) {
+      for (const s of allSessions) {
+        copies += await this.ensureRegularOnSession(s, patientId, status);
+        // Atualiza cache em memória para capacity nas próximas iterações
+        const local = s.enrollments.find((e) => e.patientId === patientId);
+        if (local) {
+          local.status = status === "PRESENTE" ? "CONFIRMADO" : status;
+          local.isMakeup = false;
+        } else {
+          s.enrollments.push({
+            id: "tmp",
+            patientId,
+            status: status === "PRESENTE" ? "CONFIRMADO" : status,
+            isMakeup: false,
+          } as (typeof s.enrollments)[number]);
+        }
+      }
     }
 
     return {
       seriesGroupId: session.seriesGroupId,
-      students,
+      students: regulars.size,
       copies,
-      detail: `${students} aluno(s) regular(es) sincronizado(s) em ${copies} inscrição(ões) da turma`,
+      sessions: allSessions.length,
+      detail: `${regulars.size} aluno(s) regular(es) espelhados em ${allSessions.length} aula(s) da turma (${copies} inscrição(ões) criada(s)/atualizada(s))`,
     };
   }
 
@@ -616,13 +667,9 @@ export class ClassesService {
     if (
       !isMakeup &&
       current.classSession.seriesGroupId &&
-      (status === "CONFIRMADO" || status === "LISTA_ESPERA")
+      (status === "CONFIRMADO" || status === "LISTA_ESPERA" || status === "PRESENTE")
     ) {
-      await this.replicateEnrollmentToSeries(
-        current.classSession,
-        current.patientId,
-        status,
-      );
+      await this.syncSeriesEnrollments(current.classSessionId);
     }
 
     return updated;

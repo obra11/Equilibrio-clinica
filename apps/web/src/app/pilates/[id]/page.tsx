@@ -148,7 +148,11 @@ export default function AulaPilatesPage() {
         setEnrollMsg("Aluno inscrito só nesta aula (reposição).");
       } else if ((res.replicated ?? 0) > 0) {
         setEnrollMsg(
-          `Aluno inscrito e replicado em ${res.replicated} aula(s) da turma.`,
+          `Aluno inscrito e turma atualizada (${res.replicated} inscrição(ões) nas outras datas).`,
+        );
+      } else if (session?.seriesGroupId) {
+        setEnrollMsg(
+          "Aluno inscrito — já estava espelhado nas outras datas da turma (ou use Replicar alunos).",
         );
       } else {
         setEnrollMsg("Aluno inscrito nesta aula.");
