@@ -491,7 +491,7 @@ export class ClassesService {
     return { ...enrollment, replicated };
   }
 
-  /** Replica aluno regular para as próximas aulas da mesma turma (série). */
+  /** Replica aluno regular para todas as aulas da mesma turma (série). */
   private async replicateEnrollmentToSeries(
     session: { id: string; seriesGroupId: string | null; startsAt: Date },
     patientId: string,
@@ -503,7 +503,6 @@ export class ClassesService {
       where: {
         seriesGroupId: session.seriesGroupId,
         id: { not: session.id },
-        startsAt: { gte: session.startsAt },
       },
       include: { enrollments: true },
       orderBy: { startsAt: "asc" },
@@ -554,6 +553,45 @@ export class ClassesService {
       replicated += 1;
     }
     return replicated;
+  }
+
+  /**
+   * Espelha alunos regulares desta aula em todas as outras da mesma série.
+   * Útil quando a turma já existia antes da replicação automática.
+   */
+  async syncSeriesEnrollments(classSessionId: string) {
+    const session = await this.prisma.classSession.findUnique({
+      where: { id: classSessionId },
+      include: { enrollments: true },
+    });
+    if (!session) throw new NotFoundException("Aula não encontrada");
+    if (!session.seriesGroupId) {
+      throw new BadRequestException(
+        "Esta aula não faz parte de uma turma recorrente — não há outras datas para sincronizar",
+      );
+    }
+
+    const regulars = session.enrollments.filter(
+      (e) =>
+        !e.isMakeup &&
+        (e.status === "CONFIRMADO" || e.status === "LISTA_ESPERA" || e.status === "PRESENTE"),
+    );
+
+    let students = 0;
+    let copies = 0;
+    for (const e of regulars) {
+      const status = e.status === "PRESENTE" ? "CONFIRMADO" : e.status;
+      const n = await this.replicateEnrollmentToSeries(session, e.patientId, status);
+      students += 1;
+      copies += n;
+    }
+
+    return {
+      seriesGroupId: session.seriesGroupId,
+      students,
+      copies,
+      detail: `${students} aluno(s) regular(es) sincronizado(s) em ${copies} inscrição(ões) da turma`,
+    };
   }
 
   async updateEnrollment(

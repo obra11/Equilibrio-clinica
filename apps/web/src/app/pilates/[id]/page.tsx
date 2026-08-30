@@ -64,6 +64,7 @@ export default function AulaPilatesPage() {
   const [remindPatientIds, setRemindPatientIds] = useState<string[]>([]);
   const [remindWhatsapp, setRemindWhatsapp] = useState(true);
   const [remindEmail, setRemindEmail] = useState(true);
+  const [syncingSeries, setSyncingSeries] = useState(false);
   const galleryRef = useRef<HTMLInputElement>(null);
   const cameraPhotoRef = useRef<HTMLInputElement>(null);
   const cameraVideoRef = useRef<HTMLInputElement>(null);
@@ -315,6 +316,35 @@ export default function AulaPilatesPage() {
       setError(err instanceof Error ? err.message : "Erro ao enviar lembretes");
     } finally {
       setRemindingClass(false);
+    }
+  }
+
+  async function syncSeriesEnrollments() {
+    if (!session?.seriesGroupId) {
+      setError("Esta aula não faz parte de uma turma recorrente.");
+      return;
+    }
+    if (
+      !window.confirm(
+        "Copiar os alunos regulares desta aula para todas as outras datas da turma?\n(Reposições não entram. Presença/falta já lançada não é alterada.)",
+      )
+    ) {
+      return;
+    }
+    setSyncingSeries(true);
+    setError("");
+    setEnrollMsg("");
+    try {
+      const res = await api<{ detail: string; students: number; copies: number }>(
+        `/classes/${id}/sync-enrollments`,
+        { method: "POST" },
+      );
+      setEnrollMsg(res.detail || "Turma sincronizada.");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao sincronizar turma");
+    } finally {
+      setSyncingSeries(false);
     }
   }
 
@@ -580,12 +610,13 @@ export default function AulaPilatesPage() {
 
           <div className="space-y-4">
             <div className="eq-card">
-              <div className="mb-3 flex items-end justify-between gap-2">
+              <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h2 className="font-display text-xl text-olive">Alunos inscritos</h2>
                   <p className="text-xs text-olive-muted">
-                    Clique no nome ou em Prontuário · lembretes saem do WhatsApp da clínica
-                    (+55 48 98488-2418)
+                    {session.seriesGroupId
+                      ? "Turma recorrente — aluno regular entra em todas as datas"
+                      : "Aula avulsa (sem série)"}
                   </p>
                 </div>
                 <p className="text-sm font-semibold text-gold">
@@ -593,7 +624,7 @@ export default function AulaPilatesPage() {
                 </p>
               </div>
 
-              <form onSubmit={enroll} className="mb-4 space-y-2">
+              <form onSubmit={enroll} className="mb-4 space-y-2 rounded-md border border-borderEq bg-cream/30 p-3">
                 <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
                   <select
                     className="eq-input"
@@ -627,99 +658,111 @@ export default function AulaPilatesPage() {
                     onChange={(e) => setEnrollIsMakeup(e.target.checked)}
                   />
                   <span>
-                    Reposição (só esta aula)
-                    {session.seriesGroupId && !enrollIsMakeup ? (
-                      <> — aluno regular será replicado nas próximas aulas da turma</>
-                    ) : null}
+                    Reposição (só esta data)
+                    {session.seriesGroupId && !enrollIsMakeup
+                      ? " — sem marcar, replica em todas as aulas da turma"
+                      : null}
                   </span>
                 </label>
               </form>
+
+              {session.seriesGroupId ? (
+                <div className="mb-3">
+                  <button
+                    type="button"
+                    className="eq-btn-ghost text-xs"
+                    disabled={syncingSeries || session.enrollments.length === 0}
+                    onClick={() => void syncSeriesEnrollments()}
+                  >
+                    {syncingSeries
+                      ? "Sincronizando..."
+                      : "Replicar alunos regulares em toda a turma"}
+                  </button>
+                </div>
+              ) : null}
 
               {session.enrollments.length === 0 ? (
                 <p className="text-sm text-olive-muted">Nenhum aluno inscrito ainda.</p>
               ) : (
                 <>
-                  <div className="mb-2 flex flex-wrap items-center gap-3 text-xs">
+                  <div className="mb-3 flex flex-wrap items-center gap-3 border-b border-borderEq pb-2 text-xs">
                     <button
                       type="button"
                       className="font-semibold text-olive underline"
                       onClick={selectAllForRemind}
                     >
-                      Selecionar todos para lembrete
+                      Selecionar todos
                     </button>
                     <button
                       type="button"
-                      className="font-semibold text-olive-muted underline"
+                      className="text-olive-muted underline"
                       onClick={() => setRemindPatientIds([])}
                     >
-                      Limpar seleção
+                      Limpar
                     </button>
                     <span className="text-olive-muted">
-                      {remindPatientIds.length} selecionado(s)
+                      {remindPatientIds.length} p/ lembrete
                     </span>
                   </div>
-                  <ul className="space-y-2">
+                  <ul className="divide-y divide-borderEq/80">
                     {session.enrollments.map((e) => {
                       const canRemind = ["CONFIRMADO", "PRESENTE", "LISTA_ESPERA"].includes(
                         e.status,
                       );
                       return (
-                        <li
-                          key={e.id}
-                          className="flex flex-wrap items-center justify-between gap-2 border-b border-borderEq/70 py-2 text-sm"
-                        >
-                          <div className="flex min-w-0 items-start gap-2">
-                            <input
-                              type="checkbox"
-                              className="mt-1"
-                              disabled={!canRemind}
-                              checked={remindPatientIds.includes(e.patient.id)}
-                              onChange={(ev) =>
-                                toggleRemindSelect(e.patient.id, ev.target.checked)
-                              }
-                              title="Selecionar para lembrete"
-                            />
-                            <div className="min-w-0">
+                        <li key={e.id} className="grid gap-2 py-3 sm:grid-cols-[auto_1fr_auto] sm:items-center">
+                          <input
+                            type="checkbox"
+                            className="sm:mt-0"
+                            disabled={!canRemind}
+                            checked={remindPatientIds.includes(e.patient.id)}
+                            onChange={(ev) =>
+                              toggleRemindSelect(e.patient.id, ev.target.checked)
+                            }
+                            title="Selecionar para lembrete"
+                          />
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
                               <Link
                                 href={`/pacientes/${e.patient.id}`}
-                                className="font-medium text-olive underline-offset-2 hover:underline"
-                                title="Abrir prontuário"
+                                className="font-medium text-olive hover:underline"
                               >
                                 {e.patient.fullName}
                               </Link>
                               {e.isMakeup ? (
-                                <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-gold">
+                                <span className="rounded bg-gold/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-olive">
                                   Reposição
                                 </span>
                               ) : null}
-                              <p>
-                                <Link
-                                  href={`/pacientes/${e.patient.id}`}
-                                  className="text-xs font-semibold text-olive underline-offset-2 hover:underline"
-                                >
-                                  Abrir prontuário →
-                                </Link>
-                              </p>
                             </div>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Link
-                              href={`/pacientes/${e.patient.id}`}
-                              className="eq-btn-ghost px-2 py-1 text-xs"
-                            >
-                              Prontuário
-                            </Link>
-                            {canRemind ? (
+                            <div className="mt-1 flex flex-wrap gap-3 text-xs">
+                              <Link
+                                href={`/pacientes/${e.patient.id}`}
+                                className="font-semibold text-olive underline-offset-2 hover:underline"
+                              >
+                                Prontuário
+                              </Link>
+                              {canRemind ? (
+                                <button
+                                  type="button"
+                                  className="font-semibold text-olive underline-offset-2 hover:underline"
+                                  disabled={remindingClass}
+                                  onClick={() => sendClassReminders([e.patient.id])}
+                                >
+                                  Lembrar
+                                </button>
+                              ) : null}
                               <button
                                 type="button"
-                                className="text-xs font-semibold text-olive underline"
-                                disabled={remindingClass}
-                                onClick={() => sendClassReminders([e.patient.id])}
+                                className="text-red-700 underline-offset-2 hover:underline"
+                                onClick={() => removeEnrollment(e.id, e.patient.fullName)}
                               >
-                                Lembrar
+                                Remover
                               </button>
-                            ) : null}
-                            <label className="flex items-center gap-1 text-[10px] text-olive-muted">
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                            <label className="flex items-center gap-1 text-[11px] text-olive-muted">
                               <input
                                 type="checkbox"
                                 checked={Boolean(e.isMakeup)}
@@ -728,7 +771,7 @@ export default function AulaPilatesPage() {
                               Reposição
                             </label>
                             <select
-                              className="eq-input py-1 text-xs"
+                              className="eq-input w-auto min-w-[8.5rem] py-1 text-xs"
                               value={e.status}
                               onChange={(ev) => changeStatus(e.id, ev.target.value)}
                             >
@@ -738,13 +781,6 @@ export default function AulaPilatesPage() {
                                 </option>
                               ))}
                             </select>
-                            <button
-                              type="button"
-                              className="text-xs text-red-700 hover:underline"
-                              onClick={() => removeEnrollment(e.id, e.patient.fullName)}
-                            >
-                              Remover
-                            </button>
                           </div>
                         </li>
                       );

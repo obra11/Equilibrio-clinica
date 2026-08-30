@@ -142,6 +142,12 @@ export class ClassesController {
   }
 
   @Roles("ADMIN", "RECEPCAO")
+  @Post(":id/sync-enrollments")
+  syncEnrollments(@Param("id") id: string) {
+    return this.classes.syncSeriesEnrollments(id);
+  }
+
+  @Roles("ADMIN", "RECEPCAO")
   @Post(":id/reminders")
   sendReminders(
     @Param("id") id: string,
