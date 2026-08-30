@@ -1,5 +1,4 @@
 import { Injectable, Logger } from "@nestjs/common";
-import nodemailer from "nodemailer";
 
 export type EmailSendResult = {
   ok: boolean;
@@ -9,6 +8,7 @@ export type EmailSendResult = {
   subject?: string;
   message?: string;
   detail?: string;
+  mailtoUrl?: string;
 };
 
 @Injectable()
@@ -36,6 +36,18 @@ export class EmailService {
     ).trim();
   }
 
+  clinicName() {
+    return process.env.CLINIC_NAME || "Equilíbrio Fisioterapia e Bem-Estar";
+  }
+
+  mailtoUrl(to: string, subject: string, body: string) {
+    const q = new URLSearchParams({
+      subject,
+      body,
+    });
+    return `mailto:${to}?${q.toString()}`;
+  }
+
   async sendText(params: {
     to: string;
     subject: string;
@@ -51,7 +63,9 @@ export class EmailService {
       };
     }
 
+    const mailtoUrl = this.mailtoUrl(to, params.subject, params.text);
     const provider = this.provider;
+
     if (provider === "none") {
       return {
         ok: false,
@@ -59,6 +73,7 @@ export class EmailService {
         to,
         provider,
         detail: "E-mail desativado",
+        mailtoUrl,
       };
     }
 
@@ -73,7 +88,8 @@ export class EmailService {
         provider,
         subject: params.subject,
         message: params.text,
-        detail: "Mensagem registrada no servidor (modo desenvolvimento)",
+        detail: "Abra o e-mail da clínica e confirme o envio (modo simulado)",
+        mailtoUrl,
       };
     }
 
@@ -92,9 +108,11 @@ export class EmailService {
             to,
             provider,
             detail: "SMTP_HOST não configurado",
+            mailtoUrl,
           };
         }
 
+        const nodemailer = await import("nodemailer");
         const transporter = nodemailer.createTransport({
           host,
           port,
@@ -118,11 +136,12 @@ export class EmailService {
           subject: params.subject,
           message: params.text,
           detail: "E-mail enviado via SMTP",
+          mailtoUrl,
         };
       } catch (err) {
         const detail = err instanceof Error ? err.message : "Falha ao enviar e-mail";
         this.logger.error(detail);
-        return { ok: false, status: "error", to, provider, detail };
+        return { ok: false, status: "error", to, provider, detail, mailtoUrl };
       }
     }
 
@@ -132,6 +151,7 @@ export class EmailService {
       to,
       provider,
       detail: `Provedor de e-mail desconhecido: ${provider}`,
+      mailtoUrl,
     };
   }
 }

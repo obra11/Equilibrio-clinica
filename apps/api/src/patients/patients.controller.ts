@@ -92,6 +92,18 @@ export class PatientsController {
     return this.patients.sendWelcomeWhatsapp(id);
   }
 
+  @Roles("ADMIN", "RECEPCAO")
+  @Post(":id/welcome")
+  sendWelcomeChannels(
+    @Req() req: { user: AuthUser },
+    @Param("id") id: string,
+    @Body() body: { channels?: Array<"email" | "whatsapp"> },
+  ) {
+    consumeRateLimit(`welcome:${req.user.userId}:${id}`, 5, 60 * 60 * 1000);
+    consumeRateLimit(`welcome-user:${req.user.userId}`, 30, 60 * 60 * 1000);
+    return this.patients.sendWelcomeMessage(id, body?.channels || ["whatsapp"]);
+  }
+
   @Roles("ADMIN")
   @Delete(":id")
   remove(@Param("id") id: string) {

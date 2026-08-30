@@ -1,12 +1,14 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { WhatsappService } from "../whatsapp/whatsapp.service";
+import { EmailService } from "../email/email.service";
 
 @Injectable()
 export class AppointmentsService {
   constructor(
     private prisma: PrismaService,
     private whatsapp: WhatsappService,
+    private email: EmailService,
   ) {}
 
   list(params: { from?: string; to?: string; professionalId?: string }) {
@@ -441,7 +443,10 @@ export class AppointmentsService {
     return { ok: true, id, status: "CANCELADO" };
   }
 
-  async sendReminder(id: string) {
+  async sendReminder(
+    id: string,
+    channels: Array<"email" | "whatsapp"> = ["whatsapp"],
+  ) {
     const appt = await this.prisma.appointment.findUnique({
       where: { id },
       include: {
@@ -456,7 +461,11 @@ export class AppointmentsService {
       throw new BadRequestException("Não é possível lembrar agendamento cancelado");
     }
 
-    const phone = appt.patient.whatsapp || appt.patient.phone;
+    const wanted = channels.filter((c) => c === "email" || c === "whatsapp");
+    if (!wanted.length) {
+      throw new BadRequestException("Selecione e-mail e/ou WhatsApp");
+    }
+
     const message = this.whatsapp.appointmentReminderMessage({
       patientName: appt.patient.fullName,
       startsAt: appt.startsAt,
@@ -464,23 +473,53 @@ export class AppointmentsService {
       professionalName: appt.professional.fullName,
       roomName: appt.room?.name,
     });
-    const waUrl = this.whatsapp.waMeUrl(phone, message);
-    if (!phone) {
-      return {
-        ok: false,
-        status: "skipped" as const,
-        detail: "Paciente sem WhatsApp/telefone",
-        message,
-        waUrl,
-        patientName: appt.patient.fullName,
-      };
-    }
-    const sent = await this.whatsapp.sendText(phone, message);
-    return {
-      ...sent,
-      message,
-      waUrl,
+    const subject = `Lembrete de atendimento — ${this.email.clinicName()}`;
+
+    const result: {
+      patientName: string;
+      message: string;
+      email?: Awaited<ReturnType<EmailService["sendText"]>>;
+      whatsapp?: Awaited<ReturnType<WhatsappService["sendText"]>> & { waUrl?: string };
+      ok: boolean;
+    } = {
       patientName: appt.patient.fullName,
+      message,
+      ok: false,
     };
+
+    if (wanted.includes("email")) {
+      if (!appt.patient.email) {
+        result.email = {
+          ok: false,
+          status: "skipped",
+          detail: "Paciente sem e-mail cadastrado",
+        };
+      } else {
+        result.email = await this.email.sendText({
+          to: appt.patient.email,
+          subject,
+          text: message,
+        });
+      }
+    }
+
+    if (wanted.includes("whatsapp")) {
+      const phone = appt.patient.whatsapp || appt.patient.phone;
+      const waUrl = this.whatsapp.waMeUrl(phone, message);
+      if (!phone) {
+        result.whatsapp = {
+          ok: false,
+          status: "skipped",
+          detail: "Paciente sem WhatsApp/telefone",
+          waUrl,
+        };
+      } else {
+        const sent = await this.whatsapp.sendText(phone, message);
+        result.whatsapp = { ...sent, waUrl: sent.waUrl || waUrl };
+      }
+    }
+
+    result.ok = Boolean(result.email?.ok || result.whatsapp?.ok);
+    return result;
   }
 }

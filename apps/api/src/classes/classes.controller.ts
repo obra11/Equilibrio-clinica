@@ -145,8 +145,12 @@ export class ClassesController {
   @Post(":id/reminders")
   sendReminders(
     @Param("id") id: string,
-    @Body() body: { patientIds?: string[] },
+    @Body() body: { patientIds?: string[]; channels?: Array<"email" | "whatsapp"> },
   ) {
-    return this.classes.sendReminders(id, body?.patientIds);
+    return this.classes.sendReminders(
+      id,
+      body?.patientIds,
+      body?.channels || ["whatsapp"],
+    );
   }
 }

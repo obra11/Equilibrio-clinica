@@ -62,16 +62,25 @@ export default function DashboardPage() {
     setError("");
     setInfo("");
     try {
-      const res = await api<ReminderResult>(`/appointments/${id}/reminder`, {
+      const res = await api<{
+        ok?: boolean;
+        patientName?: string;
+        whatsapp?: { ok?: boolean; status?: string; waUrl?: string; detail?: string };
+        email?: { ok?: boolean; status?: string; mailtoUrl?: string; detail?: string };
+      }>(`/appointments/${id}/reminder`, {
         method: "POST",
+        body: JSON.stringify({ channels: ["whatsapp", "email"] }),
       });
       setInfo(
         res.ok
-          ? `Lembrete enviado para ${res.patientName || "o paciente"}.`
-          : res.detail || "Lembrete não enviado automaticamente.",
+          ? `Lembrete enviado para ${res.patientName || "o paciente"} (WhatsApp + e-mail).`
+          : [res.whatsapp?.detail, res.email?.detail].filter(Boolean).join(" · ") ||
+              "Lembrete não enviado automaticamente.",
       );
-      if (res.waUrl && (!res.ok || res.status === "simulated" || res.status === "skipped")) {
-        window.open(res.waUrl, "_blank", "noopener,noreferrer");
+      if (res.whatsapp?.waUrl && (!res.whatsapp.ok || res.whatsapp.status === "simulated")) {
+        window.open(res.whatsapp.waUrl, "_blank", "noopener,noreferrer");
+      } else if (res.email?.mailtoUrl && (!res.email.ok || res.email.status === "simulated")) {
+        window.open(res.email.mailtoUrl, "_blank");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao enviar lembrete");
@@ -89,14 +98,25 @@ export default function DashboardPage() {
         sent: number;
         total: number;
         title: string;
-        results: ReminderResult[];
-      }>(`/classes/${id}/reminders`, { method: "POST" });
-      setInfo(`Aula "${res.title}": ${res.sent}/${res.total} lembrete(s) enviados.`);
-      const firstLink = res.results?.find(
-        (r) => r.waUrl && (!r.ok || r.status === "simulated" || r.status === "skipped"),
+        results: Array<{
+          whatsapp?: { waUrl?: string; ok?: boolean; status?: string };
+          email?: { mailtoUrl?: string; ok?: boolean; status?: string };
+        }>;
+      }>(`/classes/${id}/reminders`, {
+        method: "POST",
+        body: JSON.stringify({ channels: ["whatsapp", "email"] }),
+      });
+      setInfo(`Aula "${res.title}": ${res.sent}/${res.total} lembrete(s) (WhatsApp + e-mail).`);
+      const first = res.results?.find(
+        (r) =>
+          (r.whatsapp?.waUrl &&
+            (!r.whatsapp.ok || r.whatsapp.status === "simulated")) ||
+          (r.email?.mailtoUrl && (!r.email.ok || r.email.status === "simulated")),
       );
-      if (firstLink?.waUrl && res.sent === 0) {
-        window.open(firstLink.waUrl, "_blank", "noopener,noreferrer");
+      if (first?.whatsapp?.waUrl) {
+        window.open(first.whatsapp.waUrl, "_blank", "noopener,noreferrer");
+      } else if (first?.email?.mailtoUrl) {
+        window.open(first.email.mailtoUrl, "_blank");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao enviar lembretes da aula");

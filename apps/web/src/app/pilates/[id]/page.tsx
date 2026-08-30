@@ -62,6 +62,8 @@ export default function AulaPilatesPage() {
   const [remindingClass, setRemindingClass] = useState(false);
   const [classRemindMsg, setClassRemindMsg] = useState("");
   const [remindPatientIds, setRemindPatientIds] = useState<string[]>([]);
+  const [remindWhatsapp, setRemindWhatsapp] = useState(true);
+  const [remindEmail, setRemindEmail] = useState(true);
   const galleryRef = useRef<HTMLInputElement>(null);
   const cameraPhotoRef = useRef<HTMLInputElement>(null);
   const cameraVideoRef = useRef<HTMLInputElement>(null);
@@ -246,13 +248,21 @@ export default function AulaPilatesPage() {
 
   async function sendClassReminders(patientIds?: string[]) {
     if (!session) return;
+    const channels: Array<"email" | "whatsapp"> = [];
+    if (remindEmail) channels.push("email");
+    if (remindWhatsapp) channels.push("whatsapp");
+    if (!channels.length) {
+      setError("Marque e-mail e/ou WhatsApp para o lembrete.");
+      return;
+    }
+
     const activeIds = session.enrollments
       .filter((e) => ["CONFIRMADO", "PRESENTE", "LISTA_ESPERA"].includes(e.status))
       .map((e) => e.patient.id);
     const targets = patientIds?.length
-      ? patientIds.filter((id) => activeIds.includes(id))
+      ? patientIds.filter((pid) => activeIds.includes(pid))
       : remindPatientIds.length
-        ? remindPatientIds.filter((id) => activeIds.includes(id))
+        ? remindPatientIds.filter((pid) => activeIds.includes(pid))
         : [];
 
     if (!targets.length) {
@@ -265,7 +275,7 @@ export default function AulaPilatesPage() {
       .map((e) => e.patient.fullName);
     if (
       !window.confirm(
-        `Enviar lembrete WhatsApp para ${targets.length} aluno(s)?\n\n${names.join("\n")}`,
+        `Enviar lembrete (${channels.join(" + ")}) para ${targets.length} aluno(s)?\n\n${names.join("\n")}`,
       )
     ) {
       return;
@@ -279,27 +289,27 @@ export default function AulaPilatesPage() {
         sent: number;
         total: number;
         results: Array<{
-          waUrl?: string;
-          ok?: boolean;
-          status?: string;
           fullName?: string;
+          ok?: boolean;
+          email?: { ok?: boolean; status?: string; mailtoUrl?: string; detail?: string };
+          whatsapp?: { ok?: boolean; status?: string; waUrl?: string; detail?: string };
         }>;
       }>(`/classes/${id}/reminders`, {
         method: "POST",
-        body: JSON.stringify({ patientIds: targets }),
+        body: JSON.stringify({ patientIds: targets, channels }),
       });
       setClassRemindMsg(
-        `${res.sent}/${res.total} lembrete(s) · origem WhatsApp da clínica +55 48 98488-2418`,
+        `${res.sent}/${res.total} lembrete(s) · canais: ${channels.join(", ")}`,
       );
-      const needManual = (res.results || []).filter(
-        (r) => r.waUrl && (!r.ok || r.status === "simulated" || r.status === "skipped"),
-      );
-      if (needManual.length === 1 && needManual[0].waUrl) {
-        window.open(needManual[0].waUrl, "_blank", "noopener,noreferrer");
-      } else if (needManual.length > 1) {
-        setClassRemindMsg(
-          `${res.sent}/${res.total} processados. Use o WhatsApp da clínica (+55 48 98488-2418) e os links “Abrir WhatsApp” se o envio automático não estiver ativo.`,
-        );
+      for (const r of res.results || []) {
+        if (r.whatsapp?.waUrl && (!r.whatsapp.ok || r.whatsapp.status === "simulated")) {
+          window.open(r.whatsapp.waUrl, "_blank", "noopener,noreferrer");
+          break;
+        }
+        if (r.email?.mailtoUrl && (!r.email.ok || r.email.status === "simulated")) {
+          window.open(r.email.mailtoUrl, "_blank");
+          break;
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao enviar lembretes");
@@ -339,7 +349,23 @@ export default function AulaPilatesPage() {
               : "Carregando..."}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-1 text-xs text-olive">
+            <input
+              type="checkbox"
+              checked={remindWhatsapp}
+              onChange={(e) => setRemindWhatsapp(e.target.checked)}
+            />
+            WhatsApp
+          </label>
+          <label className="flex items-center gap-1 text-xs text-olive">
+            <input
+              type="checkbox"
+              checked={remindEmail}
+              onChange={(e) => setRemindEmail(e.target.checked)}
+            />
+            E-mail
+          </label>
           <button
             type="button"
             className="eq-btn"

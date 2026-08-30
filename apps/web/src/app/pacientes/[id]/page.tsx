@@ -293,37 +293,69 @@ export default function PacienteDetailPage() {
             className="eq-btn-ghost"
             onClick={async () => {
               try {
+                const channels: Array<"email" | "whatsapp"> = [];
+                const useWa = window.confirm(
+                  "Enviar por WhatsApp?\n\nOK = sim · Cancelar = só e-mail (se houver)",
+                );
+                const useEmail = window.confirm(
+                  "Enviar por e-mail?\n\nOK = sim · Cancelar = não",
+                );
+                if (useWa) channels.push("whatsapp");
+                if (useEmail) channels.push("email");
+                if (!channels.length) {
+                  window.alert("Nenhum canal selecionado.");
+                  return;
+                }
                 const res = await api<{
                   ok: boolean;
-                  status: string;
-                  detail?: string;
-                  to?: string;
-                  from?: string;
-                  waUrl?: string;
-                  message?: string;
-                }>(`/patients/${id}/welcome-whatsapp`, { method: "POST" });
-                if (res.status === "sent") {
-                  window.alert(
-                    `WhatsApp enviado para ${res.to}\nOrigem: WhatsApp da clínica +55 48 98488-2418`,
+                  email?: { ok?: boolean; status?: string; detail?: string; mailtoUrl?: string };
+                  whatsapp?: {
+                    ok?: boolean;
+                    status?: string;
+                    detail?: string;
+                    to?: string;
+                    waUrl?: string;
+                  };
+                }>(`/patients/${id}/welcome`, {
+                  method: "POST",
+                  body: JSON.stringify({ channels }),
+                });
+                const lines: string[] = [];
+                if (res.whatsapp) {
+                  lines.push(
+                    res.whatsapp.ok
+                      ? `WhatsApp: ${res.whatsapp.status} → ${res.whatsapp.to || ""}`
+                      : `WhatsApp: ${res.whatsapp.detail || res.whatsapp.status}`,
                   );
-                } else if (res.status === "simulated" || res.waUrl) {
-                  if (res.waUrl) {
-                    window.open(res.waUrl, "_blank", "noopener,noreferrer");
+                  if (
+                    res.whatsapp.waUrl &&
+                    (!res.whatsapp.ok ||
+                      res.whatsapp.status === "simulated" ||
+                      res.whatsapp.status === "skipped")
+                  ) {
+                    window.open(res.whatsapp.waUrl, "_blank", "noopener,noreferrer");
                   }
-                  window.alert(
-                    `Mensagem pronta para ${res.to || "o paciente"}.\n\n` +
-                      `Abra o WhatsApp da clínica (+55 48 98488-2418) e confirme o envio.\n` +
-                      `Se a conversa abriu no navegador, basta clicar em Enviar.`,
-                  );
-                } else {
-                  window.alert(res.detail || "Não foi possível preparar o WhatsApp");
                 }
+                if (res.email) {
+                  lines.push(
+                    res.email.ok
+                      ? `E-mail: ${res.email.status}`
+                      : `E-mail: ${res.email.detail || res.email.status}`,
+                  );
+                  if (
+                    res.email.mailtoUrl &&
+                    (!res.email.ok || res.email.status === "simulated")
+                  ) {
+                    window.open(res.email.mailtoUrl, "_blank");
+                  }
+                }
+                window.alert(lines.join("\n") || "Concluído");
               } catch (e) {
-                window.alert(e instanceof Error ? e.message : "Erro ao enviar WhatsApp");
+                window.alert(e instanceof Error ? e.message : "Erro ao enviar");
               }
             }}
           >
-            WhatsApp boas-vindas
+            Boas-vindas (WhatsApp/e-mail)
           </button>
           <Link href={`/pacientes/${id}/editar`} className="eq-btn-ghost">
             Editar cadastro

@@ -135,6 +135,8 @@ export default function AgendaPage() {
   const [deleting, setDeleting] = useState(false);
   const [reminding, setReminding] = useState(false);
   const [remindMsg, setRemindMsg] = useState("");
+  const [remindWhatsapp, setRemindWhatsapp] = useState(true);
+  const [remindEmail, setRemindEmail] = useState(true);
 
   const individualServices = useMemo(() => services.filter((s) => !s.isGroup), [services]);
 
@@ -370,28 +372,56 @@ export default function AgendaPage() {
 
   async function sendAppointmentReminder() {
     if (!selected) return;
+    const channels: Array<"email" | "whatsapp"> = [];
+    if (remindEmail) channels.push("email");
+    if (remindWhatsapp) channels.push("whatsapp");
+    if (!channels.length) {
+      setError("Marque e-mail e/ou WhatsApp");
+      return;
+    }
     setReminding(true);
     setError("");
     setRemindMsg("");
     try {
       const res = await api<{
         ok: boolean;
-        status: string;
-        detail?: string;
-        waUrl?: string;
         patientName?: string;
-      }>(`/appointments/${selected.id}/reminder`, { method: "POST" });
-      if (res.ok) {
-        setRemindMsg(
-          res.status === "simulated"
-            ? `Lembrete pronto — envie pelo WhatsApp da clínica +55 48 98488-2418.`
-            : `Lembrete enviado para ${res.patientName || "o paciente"} (origem +55 48 98488-2418).`,
+        email?: { ok?: boolean; status?: string; detail?: string; mailtoUrl?: string };
+        whatsapp?: { ok?: boolean; status?: string; detail?: string; waUrl?: string };
+      }>(`/appointments/${selected.id}/reminder`, {
+        method: "POST",
+        body: JSON.stringify({ channels }),
+      });
+      const parts: string[] = [];
+      if (res.email) {
+        parts.push(
+          res.email.ok
+            ? `E-mail: ${res.email.status}`
+            : `E-mail: ${res.email.detail || res.email.status}`,
         );
-      } else {
-        setRemindMsg(res.detail || "Não foi possível enviar automaticamente.");
       }
-      if (res.waUrl && (!res.ok || res.status === "simulated" || res.status === "skipped")) {
-        window.open(res.waUrl, "_blank", "noopener,noreferrer");
+      if (res.whatsapp) {
+        parts.push(
+          res.whatsapp.ok
+            ? `WhatsApp: ${res.whatsapp.status}`
+            : `WhatsApp: ${res.whatsapp.detail || res.whatsapp.status}`,
+        );
+      }
+      setRemindMsg(
+        res.ok
+          ? `Lembrete para ${res.patientName || "paciente"} — ${parts.join(" · ")}`
+          : parts.join(" · ") || "Não foi possível enviar",
+      );
+      if (
+        res.whatsapp?.waUrl &&
+        (!res.whatsapp.ok || res.whatsapp.status === "simulated" || res.whatsapp.status === "skipped")
+      ) {
+        window.open(res.whatsapp.waUrl, "_blank", "noopener,noreferrer");
+      } else if (
+        res.email?.mailtoUrl &&
+        (!res.email.ok || res.email.status === "simulated")
+      ) {
+        window.open(res.email.mailtoUrl, "_blank");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao enviar lembrete");
@@ -932,6 +962,26 @@ export default function AgendaPage() {
               ) : null}
               {error ? <p className="text-sm text-red-700">{error}</p> : null}
               {remindMsg ? <p className="text-sm text-olive">{remindMsg}</p> : null}
+              {selected ? (
+                <div className="flex flex-wrap gap-4 text-sm text-olive">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={remindWhatsapp}
+                      onChange={(e) => setRemindWhatsapp(e.target.checked)}
+                    />
+                    WhatsApp
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={remindEmail}
+                      onChange={(e) => setRemindEmail(e.target.checked)}
+                    />
+                    E-mail
+                  </label>
+                </div>
+              ) : null}
               <button className="eq-btn w-full" disabled={saving || deleting || reminding}>
                 {saving
                   ? "Salvando..."
@@ -946,7 +996,7 @@ export default function AgendaPage() {
                   disabled={saving || deleting || reminding}
                   onClick={sendAppointmentReminder}
                 >
-                  {reminding ? "Enviando lembrete..." : "Enviar lembrete (WhatsApp)"}
+                  {reminding ? "Enviando lembrete..." : "Enviar lembrete"}
                 </button>
               ) : null}
               {selected ? (

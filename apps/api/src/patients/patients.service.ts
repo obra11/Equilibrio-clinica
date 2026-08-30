@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { WhatsappService } from "../whatsapp/whatsapp.service";
+import { EmailService } from "../email/email.service";
 import { withParsedAttachments } from "../clinical/clinical-attachments";
 
 type PatientInput = {
@@ -82,6 +83,7 @@ export class PatientsService {
   constructor(
     private prisma: PrismaService,
     private whatsapp: WhatsappService,
+    private email: EmailService,
   ) {}
 
   list(q?: string) {
@@ -175,8 +177,11 @@ export class PatientsService {
         ok: false,
         status: "skipped",
         to: undefined,
+        from: undefined,
         provider: undefined,
         detail: "Envio de boas-vindas desmarcado no cadastro",
+        message: undefined,
+        waUrl: undefined,
       };
     }
 
@@ -189,6 +194,53 @@ export class PatientsService {
     return sanitizeWhatsappResult(
       await this.whatsapp.sendWelcome(patient.fullName, patient.whatsapp || patient.phone),
     );
+  }
+
+  async sendWelcomeMessage(
+    id: string,
+    channels: Array<"email" | "whatsapp"> = ["whatsapp"],
+  ) {
+    const patient = await this.prisma.patient.findFirst({ where: { id, active: true } });
+    if (!patient) throw new NotFoundException("Paciente não encontrado");
+
+    const wanted = channels.filter((c) => c === "email" || c === "whatsapp");
+    if (!wanted.length) {
+      throw new BadRequestException("Selecione e-mail e/ou WhatsApp");
+    }
+
+    const text = this.whatsapp.welcomeMessage(patient.fullName);
+    const subject = `Bem-vindo(a) — ${this.email.clinicName()}`;
+    const result: {
+      patientName: string;
+      email?: Awaited<ReturnType<EmailService["sendText"]>>;
+      whatsapp?: ReturnType<typeof sanitizeWhatsappResult> & { waUrl?: string; message?: string };
+      ok: boolean;
+    } = { patientName: patient.fullName, ok: false };
+
+    if (wanted.includes("email")) {
+      if (!patient.email) {
+        result.email = {
+          ok: false,
+          status: "skipped",
+          detail: "Paciente sem e-mail cadastrado",
+        };
+      } else {
+        result.email = await this.email.sendText({
+          to: patient.email,
+          subject,
+          text,
+        });
+      }
+    }
+
+    if (wanted.includes("whatsapp")) {
+      const phone = patient.whatsapp || patient.phone;
+      const raw = await this.whatsapp.sendWelcome(patient.fullName, phone);
+      result.whatsapp = { ...sanitizeWhatsappResult(raw), waUrl: raw.waUrl, message: raw.message };
+    }
+
+    result.ok = Boolean(result.email?.ok || result.whatsapp?.ok);
+    return result;
   }
 
   async update(id: string, data: Record<string, unknown>) {

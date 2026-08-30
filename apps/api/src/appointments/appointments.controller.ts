@@ -52,7 +52,10 @@ export class AppointmentsController {
 
   @Roles("ADMIN", "RECEPCAO")
   @Post(":id/reminder")
-  sendReminder(@Param("id") id: string) {
-    return this.appointments.sendReminder(id);
+  sendReminder(
+    @Param("id") id: string,
+    @Body() body: { channels?: Array<"email" | "whatsapp"> },
+  ) {
+    return this.appointments.sendReminder(id, body?.channels || ["whatsapp"]);
   }
 }

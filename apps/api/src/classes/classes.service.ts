@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { WhatsappService } from "../whatsapp/whatsapp.service";
+import { EmailService } from "../email/email.service";
 
 export type LessonPlanMediaItem = {
   url: string;
@@ -66,6 +67,7 @@ export class ClassesService {
   constructor(
     private prisma: PrismaService,
     private whatsapp: WhatsappService,
+    private email: EmailService,
   ) {}
 
   private async assertNoScheduleConflict(params: {
@@ -593,8 +595,12 @@ export class ClassesService {
     return { ok: true };
   }
 
-  /** Envia lembrete WhatsApp aos alunos ativos da aula (ou só aos patientIds informados). */
-  async sendReminders(id: string, patientIds?: string[]) {
+  /** Envia lembrete (e-mail e/ou WhatsApp) aos alunos ativos (ou só patientIds). */
+  async sendReminders(
+    id: string,
+    patientIds?: string[],
+    channels: Array<"email" | "whatsapp"> = ["whatsapp"],
+  ) {
     const session = await this.prisma.classSession.findUnique({
       where: { id },
       include: {
@@ -608,9 +614,12 @@ export class ClassesService {
     });
     if (!session) throw new NotFoundException("Aula não encontrada");
 
-    const selected = patientIds?.length
-      ? new Set(patientIds)
-      : null;
+    const wanted = channels.filter((c) => c === "email" || c === "whatsapp");
+    if (!wanted.length) {
+      throw new BadRequestException("Selecione e-mail e/ou WhatsApp");
+    }
+
+    const selected = patientIds?.length ? new Set(patientIds) : null;
 
     const active = session.enrollments.filter((e) => {
       if (!["CONFIRMADO", "PRESENTE", "LISTA_ESPERA"].includes(e.status)) return false;
@@ -624,9 +633,10 @@ export class ClassesService {
       );
     }
 
+    const subject = `Lembrete de aula de Pilates — ${this.email.clinicName()}`;
     const results = [];
+
     for (const e of active) {
-      const phone = e.patient.whatsapp || e.patient.phone;
       const message = this.whatsapp.classReminderMessage({
         patientName: e.patient.fullName,
         startsAt: session.startsAt,
@@ -634,27 +644,55 @@ export class ClassesService {
         professionalName: session.professional.fullName,
         roomName: session.room?.name,
       });
-      const waUrl = this.whatsapp.waMeUrl(phone, message);
-      if (!phone) {
-        results.push({
-          patientId: e.patientId,
-          fullName: e.patient.fullName,
-          ok: false,
-          status: "skipped" as const,
-          detail: "Sem WhatsApp/telefone",
-          message,
-          waUrl,
-        });
-        continue;
-      }
-      const sent = await this.whatsapp.sendText(phone, message);
-      results.push({
+
+      const entry: {
+        patientId: string;
+        fullName: string;
+        message: string;
+        email?: Awaited<ReturnType<EmailService["sendText"]>>;
+        whatsapp?: Awaited<ReturnType<WhatsappService["sendText"]>> & { waUrl?: string };
+        ok: boolean;
+      } = {
         patientId: e.patientId,
         fullName: e.patient.fullName,
-        ...sent,
         message,
-        waUrl,
-      });
+        ok: false,
+      };
+
+      if (wanted.includes("email")) {
+        if (!e.patient.email) {
+          entry.email = {
+            ok: false,
+            status: "skipped",
+            detail: "Sem e-mail cadastrado",
+          };
+        } else {
+          entry.email = await this.email.sendText({
+            to: e.patient.email,
+            subject,
+            text: message,
+          });
+        }
+      }
+
+      if (wanted.includes("whatsapp")) {
+        const phone = e.patient.whatsapp || e.patient.phone;
+        const waUrl = this.whatsapp.waMeUrl(phone, message);
+        if (!phone) {
+          entry.whatsapp = {
+            ok: false,
+            status: "skipped",
+            detail: "Sem WhatsApp/telefone",
+            waUrl,
+          };
+        } else {
+          const sent = await this.whatsapp.sendText(phone, message);
+          entry.whatsapp = { ...sent, waUrl: sent.waUrl || waUrl };
+        }
+      }
+
+      entry.ok = Boolean(entry.email?.ok || entry.whatsapp?.ok);
+      results.push(entry);
     }
 
     return {
@@ -662,6 +700,7 @@ export class ClassesService {
       title: session.title,
       total: results.length,
       sent: results.filter((r) => r.ok).length,
+      channels: wanted,
       results,
     };
   }
