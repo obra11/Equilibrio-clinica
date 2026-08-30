@@ -288,7 +288,9 @@ export default function AulaPilatesPage() {
         method: "POST",
         body: JSON.stringify({ patientIds: targets }),
       });
-      setClassRemindMsg(`${res.sent}/${res.total} lembrete(s) enviados.`);
+      setClassRemindMsg(
+        `${res.sent}/${res.total} lembrete(s) · origem WhatsApp da clínica +55 48 98488-2418`,
+      );
       const needManual = (res.results || []).filter(
         (r) => r.waUrl && (!r.ok || r.status === "simulated" || r.status === "skipped"),
       );
@@ -296,7 +298,7 @@ export default function AulaPilatesPage() {
         window.open(needManual[0].waUrl, "_blank", "noopener,noreferrer");
       } else if (needManual.length > 1) {
         setClassRemindMsg(
-          `${res.sent}/${res.total} enviados. Use “Abrir WhatsApp” em cada aluno se precisar enviar manualmente.`,
+          `${res.sent}/${res.total} processados. Use o WhatsApp da clínica (+55 48 98488-2418) e os links “Abrir WhatsApp” se o envio automático não estiver ativo.`,
         );
       }
     } catch (err) {
@@ -556,7 +558,8 @@ export default function AulaPilatesPage() {
                 <div>
                   <h2 className="font-display text-xl text-olive">Alunos inscritos</h2>
                   <p className="text-xs text-olive-muted">
-                    Clique no nome ou em Prontuário para abrir evolução e anamnese
+                    Clique no nome ou em Prontuário · lembretes saem do WhatsApp da clínica
+                    (+55 48 98488-2418)
                   </p>
                 </div>
                 <p className="text-sm font-semibold text-gold">

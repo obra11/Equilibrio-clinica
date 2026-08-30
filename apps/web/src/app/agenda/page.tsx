@@ -384,8 +384,8 @@ export default function AgendaPage() {
       if (res.ok) {
         setRemindMsg(
           res.status === "simulated"
-            ? `Lembrete registrado (simulado) para ${res.patientName || "o paciente"}.`
-            : `Lembrete enviado para ${res.patientName || "o paciente"}.`,
+            ? `Lembrete pronto — envie pelo WhatsApp da clínica +55 48 98488-2418.`
+            : `Lembrete enviado para ${res.patientName || "o paciente"} (origem +55 48 98488-2418).`,
         );
       } else {
         setRemindMsg(res.detail || "Não foi possível enviar automaticamente.");
@@ -460,7 +460,8 @@ export default function AgendaPage() {
         <div>
           <h1 className="font-display text-3xl text-olive">Agenda</h1>
           <p className="mt-1 text-sm text-olive-muted">
-            Atendimentos e aulas de Pilates — clique na aula para abrir a turma
+            Atendimentos e aulas de Pilates — lembretes pelo WhatsApp da clínica
+            (+55 48 98488-2418)
           </p>
         </div>
         <button type="button" className="eq-btn" onClick={() => openCreate(new Date())}>

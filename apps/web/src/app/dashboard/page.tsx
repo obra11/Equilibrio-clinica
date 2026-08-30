@@ -140,7 +140,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="font-display text-3xl text-olive">Painel do dia</h1>
           <p className="mt-1 text-sm text-olive-muted">
-            Visão rápida da operação da clínica Equilíbrio
+            Visão rápida da operação · lembretes pelo WhatsApp +55 48 98488-2418
           </p>
         </div>
         <div className="flex flex-wrap gap-2">

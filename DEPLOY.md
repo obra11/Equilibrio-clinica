@@ -49,6 +49,7 @@ JWT_SECRET=cole-um-segredo-longo-aqui
 CORS_ORIGIN=https://SEU-DOMINIO-WEB.up.railway.app
 UPLOADS_DIR=/data/uploads
 CLINIC_NAME=Equilíbrio Fisioterapia e Bem-Estar
+CLINIC_WHATSAPP=5548984882418
 WHATSAPP_PROVIDER=console
 ```
 

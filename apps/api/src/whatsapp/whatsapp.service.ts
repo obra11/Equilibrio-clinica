@@ -4,9 +4,11 @@ export type WhatsAppSendResult = {
   ok: boolean;
   status: "sent" | "skipped" | "simulated" | "error";
   to?: string;
+  from?: string;
   provider?: string;
   message?: string;
   detail?: string;
+  waUrl?: string;
 };
 
 function digitsOnly(value: string) {
@@ -26,9 +28,51 @@ export function normalizeBrazilWhatsApp(phone?: string | null): string | null {
   return d;
 }
 
+function formatClinicDisplay(e164: string) {
+  // 5548984882418 → +55 48 98488-2418
+  if (e164.length === 13) {
+    return `+${e164.slice(0, 2)} ${e164.slice(2, 4)} ${e164.slice(4, 9)}-${e164.slice(9)}`;
+  }
+  if (e164.length === 12) {
+    return `+${e164.slice(0, 2)} ${e164.slice(2, 4)} ${e164.slice(4, 8)}-${e164.slice(8)}`;
+  }
+  return `+${e164}`;
+}
+
+function relativeDayLabel(startsAt: Date) {
+  const tz = "America/Sao_Paulo";
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const dayKey = (d: Date) => fmt.format(d);
+  const today = new Date();
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const key = dayKey(startsAt);
+  if (key === dayKey(today)) return "hoje";
+  if (key === dayKey(tomorrow)) return "amanhã";
+  return null;
+}
+
 @Injectable()
 export class WhatsappService {
   private readonly logger = new Logger(WhatsappService.name);
+
+  /** Número oficial da clínica (origem dos envios). Default: +55 48 98488-2418 */
+  clinicFromNumber() {
+    const raw =
+      process.env.CLINIC_WHATSAPP ||
+      process.env.WHATSAPP_FROM ||
+      "5548984882418";
+    return normalizeBrazilWhatsApp(raw) || "5548984882418";
+  }
+
+  clinicFromDisplay() {
+    return formatClinicDisplay(this.clinicFromNumber());
+  }
 
   get provider() {
     return (process.env.WHATSAPP_PROVIDER || "console").toLowerCase();
@@ -50,15 +94,40 @@ export class WhatsappService {
     return false;
   }
 
+  private clinicName() {
+    return process.env.CLINIC_NAME || "Equilíbrio Fisioterapia e Bem-Estar";
+  }
+
+  private messageFooter() {
+    return (
+      `\n\n—\n` +
+      `${this.clinicName()}\n` +
+      `WhatsApp: ${this.clinicFromDisplay()}`
+    );
+  }
+
+  private formatWhen(startsAt: Date) {
+    const relative = relativeDayLabel(startsAt);
+    const when = startsAt.toLocaleString("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+      weekday: "long",
+      day: "2-digit",
+      month: "long",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    return relative ? `${relative}, ${when}` : when;
+  }
+
   welcomeMessage(patientName: string) {
-    const clinic =
-      process.env.CLINIC_NAME || "Equilíbrio Fisioterapia e Bem-Estar";
+    const clinic = this.clinicName();
     const first = patientName.trim().split(/\s+/)[0] || "olá";
     return (
       `Olá, ${first}! 🌿\n\n` +
       `Seja bem-vindo(a) à *${clinic}*.\n\n` +
       `Seu cadastro foi realizado com sucesso. Estamos à disposição para cuidar da sua saúde e bem-estar.\n\n` +
-      `Qualquer dúvida, é só responder esta mensagem.`
+      `Qualquer dúvida, é só responder esta mensagem.` +
+      this.messageFooter()
     );
   }
 
@@ -69,29 +138,22 @@ export class WhatsappService {
     professionalName: string;
     roomName?: string | null;
   }) {
-    const clinic =
-      process.env.CLINIC_NAME || "Equilíbrio Fisioterapia e Bem-Estar";
+    const clinic = this.clinicName();
     const first = params.patientName.trim().split(/\s+/)[0] || "olá";
-    const when = params.startsAt.toLocaleString("pt-BR", {
-      timeZone: "America/Sao_Paulo",
-      weekday: "long",
-      day: "2-digit",
-      month: "long",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    const when = this.formatWhen(params.startsAt);
     const room = params.roomName?.trim()
       ? `\n📍 Sala: ${params.roomName.trim()}`
       : "";
     return (
       `Olá, ${first}! 🌿\n\n` +
-      `Passando para lembrar do seu atendimento na *${clinic}*.\n\n` +
+      `Lembrete do seu atendimento na *${clinic}*.\n\n` +
       `📅 ${when}\n` +
       `🩺 ${params.serviceName}\n` +
       `👤 Com ${params.professionalName}` +
       `${room}\n\n` +
-      `Se precisar remarcar, fale conosco com antecedência.\n` +
-      `Aguardamos você!`
+      `Se precisar remarcar ou tiver qualquer dúvida, responda por aqui ou fale conosco no WhatsApp da clínica.\n` +
+      `Aguardamos você!` +
+      this.messageFooter()
     );
   }
 
@@ -102,17 +164,9 @@ export class WhatsappService {
     professionalName: string;
     roomName?: string | null;
   }) {
-    const clinic =
-      process.env.CLINIC_NAME || "Equilíbrio Fisioterapia e Bem-Estar";
+    const clinic = this.clinicName();
     const first = params.patientName.trim().split(/\s+/)[0] || "olá";
-    const when = params.startsAt.toLocaleString("pt-BR", {
-      timeZone: "America/Sao_Paulo",
-      weekday: "long",
-      day: "2-digit",
-      month: "long",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    const when = this.formatWhen(params.startsAt);
     const room = params.roomName?.trim()
       ? `\n📍 Sala: ${params.roomName.trim()}`
       : "";
@@ -123,62 +177,93 @@ export class WhatsappService {
       `🧘‍♀️ ${params.title}\n` +
       `👤 Com ${params.professionalName}` +
       `${room}\n\n` +
-      `Contamos com a sua presença. Se não puder vir, avise com antecedência, por favor.\n` +
-      `Até breve!`
+      `Contamos com a sua presença. Se não puder vir, avise com antecedência por este WhatsApp, por favor.\n` +
+      `Até breve!` +
+      this.messageFooter()
     );
   }
 
+  /** Link para abrir conversa com o paciente (enviar pelo WhatsApp da clínica). */
   waMeUrl(phone: string | null | undefined, text: string) {
     const to = normalizeBrazilWhatsApp(phone);
     if (!to) return undefined;
     return `https://wa.me/${to}?text=${encodeURIComponent(text)}`;
   }
 
+  configPublic() {
+    return {
+      from: this.clinicFromNumber(),
+      fromDisplay: this.clinicFromDisplay(),
+      provider: this.provider,
+      configured: this.isConfigured(),
+    };
+  }
+
   async sendText(toRaw: string, text: string): Promise<WhatsAppSendResult> {
     const to = normalizeBrazilWhatsApp(toRaw);
+    const from = this.clinicFromNumber();
     if (!to) {
       return {
         ok: false,
         status: "skipped",
+        from,
         detail: "Telefone/WhatsApp inválido",
       };
     }
 
     const provider = this.provider;
+    const waUrl = this.waMeUrl(to, text);
+
     if (provider === "none") {
-      return { ok: false, status: "skipped", to, provider, detail: "WhatsApp desativado" };
+      return {
+        ok: false,
+        status: "skipped",
+        to,
+        from,
+        provider,
+        detail: "WhatsApp desativado",
+        waUrl,
+      };
     }
 
     if (provider === "console") {
-      this.logger.log(`[WhatsApp simulado] para ${to}: ${text}`);
+      this.logger.log(
+        `[WhatsApp simulado] de ${from} (${this.clinicFromDisplay()}) para ${to}: ${text}`,
+      );
       return {
         ok: true,
         status: "simulated",
         to,
+        from,
         provider,
         message: text,
-        detail: "Mensagem registrada no servidor (modo desenvolvimento)",
+        waUrl,
+        detail: `Abra o WhatsApp da clínica ${this.clinicFromDisplay()} e envie a mensagem`,
       };
     }
 
     try {
       if (provider === "evolution") {
-        return await this.sendEvolution(to, text);
+        const sent = await this.sendEvolution(to, text);
+        return { ...sent, from, waUrl: waUrl || sent.waUrl };
       }
       if (provider === "meta") {
-        return await this.sendMeta(to, text);
+        const sent = await this.sendMeta(to, text);
+        return { ...sent, from, waUrl: waUrl || sent.waUrl };
       }
       return {
         ok: false,
         status: "error",
         to,
+        from,
         provider,
         detail: `Provedor WhatsApp desconhecido: ${provider}`,
+        waUrl,
       };
     } catch (err) {
       const detail = err instanceof Error ? err.message : "Falha ao enviar WhatsApp";
       this.logger.error(detail);
-      return { ok: false, status: "error", to, provider, detail };
+      return { ok: false, status: "error", to, from, provider, detail, waUrl };
     }
   }
 
@@ -187,6 +272,7 @@ export class WhatsappService {
       return {
         ok: false,
         status: "skipped",
+        from: this.clinicFromNumber(),
         detail: "Paciente sem WhatsApp/telefone",
       };
     }
@@ -231,7 +317,7 @@ export class WhatsappService {
       to,
       provider: "evolution",
       message: text,
-      detail: "Mensagem enviada via Evolution API",
+      detail: `Mensagem enviada via Evolution (origem ${this.clinicFromDisplay()})`,
     };
   }
 
@@ -273,7 +359,7 @@ export class WhatsappService {
       to,
       provider: "meta",
       message: text,
-      detail: "Mensagem enviada via Meta WhatsApp Cloud API",
+      detail: `Mensagem enviada via Meta (origem ${this.clinicFromDisplay()})`,
     };
   }
 }

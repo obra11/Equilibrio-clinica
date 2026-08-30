@@ -271,7 +271,8 @@ export class FinanceService {
       `é só responder — teremos prazer em ajudar.\n\n` +
       `Agradecemos a atenção e a confiança.\n\n` +
       `Atenciosamente,\n` +
-      `${clinic}`
+      `${clinic}\n` +
+      `WhatsApp: ${this.whatsapp.clinicFromDisplay()}`
     );
   }
 
