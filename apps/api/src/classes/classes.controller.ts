@@ -18,6 +18,7 @@ import { extname } from "path";
 import { ClassesService } from "./classes.service";
 import { JwtAuthGuard, Roles, RolesGuard } from "../common/guards";
 import { ensureUploadDir } from "../common/uploads-path";
+import { StorageService } from "../storage/storage.service";
 
 const mediaDir = ensureUploadDir("classes");
 const IMAGE_EXTS = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
@@ -29,7 +30,10 @@ const VIDEO_MIMES = ["video/mp4", "video/webm", "video/quicktime", "video/x-m4v"
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller("classes")
 export class ClassesController {
-  constructor(private classes: ClassesService) {}
+  constructor(
+    private classes: ClassesService,
+    private storage: StorageService,
+  ) {}
 
   @Get()
   list(@Query("from") from?: string, @Query("to") to?: string) {
@@ -88,7 +92,7 @@ export class ClassesController {
         if (!okMime || !okExt) {
           cb(
             new BadRequestException(
-              "Envie foto (JPG/PNG/WEBP) ou vídeo (MP4/WEBM/MOV)",
+              "Envie foto (JPG/PNG/WEBP) ou vídeo (MP4/WEBM/MOV). Vídeos grandes: use upload direto à nuvem.",
             ) as never,
             false,
           );
@@ -114,11 +118,33 @@ export class ClassesController {
     });
   }
 
+  /** Confirma mídia já enviada à nuvem (presign → PUT). Aceita vídeos grandes. */
+  @Roles("ADMIN", "RECEPCAO", "FISIOTERAPEUTA")
+  @Post(":id/media/confirm")
+  confirmMedia(
+    @Param("id") id: string,
+    @Body()
+    body: { url?: string; kind?: "image" | "video"; name?: string },
+  ) {
+    if (!body?.url) throw new BadRequestException("Informe a URL da mídia");
+    this.storage.assertOwnedUrl(body.url, "classes");
+    const kind =
+      body.kind ||
+      (/\.(mp4|webm|mov|m4v)(\?|$)/i.test(body.url) ? "video" : "image");
+    return this.classes.addLessonMedia(id, {
+      url: body.url,
+      kind,
+      name: body.name || "arquivo",
+    });
+  }
+
   @Roles("ADMIN", "RECEPCAO", "FISIOTERAPEUTA")
   @Delete(":id/media")
-  removeMedia(@Param("id") id: string, @Body() body: { url?: string }) {
+  async removeMedia(@Param("id") id: string, @Body() body: { url?: string }) {
     if (!body?.url) throw new BadRequestException("Informe a URL da mídia");
-    return this.classes.removeLessonMedia(id, body.url);
+    const result = await this.classes.removeLessonMedia(id, body.url);
+    await this.storage.deleteByStoredUrl(body.url);
+    return result;
   }
 
   @Roles("ADMIN")

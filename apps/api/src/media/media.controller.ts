@@ -11,6 +11,7 @@ import { createReadStream, existsSync } from "fs";
 import { extname, join, normalize, sep } from "path";
 import { JwtAuthGuard } from "../common/guards";
 import { UPLOADS_ROOT } from "../common/uploads-path";
+import { StorageService } from "../storage/storage.service";
 
 const ALLOWED_FOLDERS = new Set(["patients", "professionals", "classes", "clinical"]);
 const CONTENT_TYPES: Record<string, string> = {
@@ -57,8 +58,10 @@ const INLINE_EXTS = new Set([
 @UseGuards(JwtAuthGuard)
 @Controller("media")
 export class MediaController {
+  constructor(private storage: StorageService) {}
+
   @Get(":folder/:filename")
-  serve(
+  async serve(
     @Param("folder") folder: string,
     @Param("filename") filename: string,
     @Res() res: Response,
@@ -68,18 +71,34 @@ export class MediaController {
       throw new NotFoundException();
     }
 
-    const absolute = normalize(join(UPLOADS_ROOT, folder, filename));
-    const root = normalize(UPLOADS_ROOT + sep);
-    if (!absolute.startsWith(root) || !existsSync(absolute)) {
-      throw new NotFoundException();
-    }
-
     const ext = extname(filename).toLowerCase();
     res.setHeader("Content-Type", CONTENT_TYPES[ext] || "application/octet-stream");
     res.setHeader("Cache-Control", "private, max-age=300");
     if (!INLINE_EXTS.has(ext)) {
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     }
-    createReadStream(absolute).pipe(res);
+
+    const absolute = normalize(join(UPLOADS_ROOT, folder, filename));
+    const root = normalize(UPLOADS_ROOT + sep);
+    if (absolute.startsWith(root) && existsSync(absolute)) {
+      createReadStream(absolute).pipe(res);
+      return;
+    }
+
+    if (this.storage.isCloudEnabled()) {
+      try {
+        const obj = await this.storage.getObject(`${folder}/${filename}`);
+        if (obj.ContentType) res.setHeader("Content-Type", obj.ContentType);
+        const stream = this.storage.asNodeReadable(obj.Body);
+        if (stream) {
+          stream.pipe(res);
+          return;
+        }
+      } catch {
+        throw new NotFoundException();
+      }
+    }
+
+    throw new NotFoundException();
   }
 }

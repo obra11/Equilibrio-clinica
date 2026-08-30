@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { api, apiUpload, fetchMediaObjectUrl, mediaUrl } from "@/lib/api";
+import { api, fetchMediaObjectUrl, mediaUrl, uploadSmart } from "@/lib/api";
 
 export type ClinicalAttachment = {
   url: string;
@@ -81,12 +81,17 @@ export function ClinicalAttachments({
     if (uploadPath) {
       setUploading(true);
       try {
-        const fd = new FormData();
-        fd.append("file", file);
-        const updated = await apiUpload<{ attachments: ClinicalAttachment[] }>(
-          uploadPath,
-          fd,
-        );
+        const updated = (await uploadSmart(file, "clinical", {
+          multipartPath: uploadPath,
+          formField: "file",
+          confirmPath: `${uploadPath}/confirm`,
+          confirmBody: (fileUrl, kind) => ({
+            url: fileUrl,
+            kind,
+            name: file.name,
+            mime: file.type,
+          }),
+        })) as { attachments: ClinicalAttachment[] };
         onChanged?.(updated.attachments || []);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erro no upload");
@@ -309,9 +314,17 @@ export async function uploadPendingAttachments(
 ): Promise<ClinicalAttachment[]> {
   let last: ClinicalAttachment[] = [];
   for (const file of files) {
-    const fd = new FormData();
-    fd.append("file", file);
-    const updated = await apiUpload<{ attachments: ClinicalAttachment[] }>(uploadPath, fd);
+    const updated = (await uploadSmart(file, "clinical", {
+      multipartPath: uploadPath,
+      formField: "file",
+      confirmPath: `${uploadPath}/confirm`,
+      confirmBody: (fileUrl, kind) => ({
+        url: fileUrl,
+        kind,
+        name: file.name,
+        mime: file.type,
+      }),
+    })) as { attachments: ClinicalAttachment[] };
     last = updated.attachments || [];
   }
   return last;

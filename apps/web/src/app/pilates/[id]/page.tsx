@@ -5,7 +5,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { ClassForm, ClassFormValues, toLocalInput } from "@/components/ClassForm";
-import { api, apiUpload, fetchMediaObjectUrl, formatDateTime, getToken } from "@/lib/api";
+import { api, fetchMediaObjectUrl, formatDateTime, getToken, uploadSmart } from "@/lib/api";
 
 type LessonMedia = {
   url: string;
@@ -224,9 +224,16 @@ export default function AulaPilatesPage() {
     setUploadingMedia(true);
     setError("");
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const updated = await apiUpload<ClassSession>(`/classes/${id}/media`, fd);
+      const updated = (await uploadSmart(file, "classes", {
+        multipartPath: `/classes/${id}/media`,
+        formField: "file",
+        confirmPath: `/classes/${id}/media/confirm`,
+        confirmBody: (fileUrl, kind) => ({
+          url: fileUrl,
+          kind: kind === "document" ? "image" : kind,
+          name: file.name,
+        }),
+      })) as ClassSession;
       setMedia(updated.lessonPlanMedia || []);
       setSession(updated);
     } catch (err) {

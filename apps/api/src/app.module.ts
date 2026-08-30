@@ -12,6 +12,7 @@ import { CatalogModule } from "./catalog/catalog.module";
 import { WhatsappModule } from "./whatsapp/whatsapp.module";
 import { EmailModule } from "./email/email.module";
 import { MediaModule } from "./media/media.module";
+import { StorageModule } from "./storage/storage.module";
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { MediaModule } from "./media/media.module";
     WhatsappModule,
     EmailModule,
     AuthModule,
+    StorageModule,
     MediaModule,
     PatientsModule,
     ProfessionalsModule,

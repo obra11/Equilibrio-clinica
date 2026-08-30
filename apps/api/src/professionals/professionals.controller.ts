@@ -19,6 +19,7 @@ import { ProfessionalsService } from "./professionals.service";
 import { AuthUser } from "../common/auth-user";
 import { JwtAuthGuard, Roles, RolesGuard } from "../common/guards";
 import { ensureUploadDir } from "../common/uploads-path";
+import { StorageService } from "../storage/storage.service";
 
 const photosDir = ensureUploadDir("professionals");
 const IMAGE_EXTS = [".jpg", ".jpeg", ".png", ".webp"];
@@ -26,7 +27,10 @@ const IMAGE_EXTS = [".jpg", ".jpeg", ".png", ".webp"];
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller("professionals")
 export class ProfessionalsController {
-  constructor(private professionals: ProfessionalsService) {}
+  constructor(
+    private professionals: ProfessionalsService,
+    private storage: StorageService,
+  ) {}
 
   @Get()
   list(@Req() req: { user: AuthUser }) {
@@ -88,6 +92,18 @@ export class ProfessionalsController {
       `/uploads/professionals/${file.filename}`,
       req.user.role,
     );
+  }
+
+  @Roles("ADMIN", "RECEPCAO")
+  @Post(":id/photo/confirm")
+  confirmPhoto(
+    @Req() req: { user: AuthUser },
+    @Param("id") id: string,
+    @Body() body: { photoUrl?: string },
+  ) {
+    if (!body?.photoUrl) throw new BadRequestException("Informe photoUrl");
+    this.storage.assertOwnedUrl(body.photoUrl, "professionals");
+    return this.professionals.updatePhoto(id, body.photoUrl, req.user.role);
   }
 
   @Roles("ADMIN")

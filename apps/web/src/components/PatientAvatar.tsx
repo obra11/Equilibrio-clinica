@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { apiUpload, fetchMediaObjectUrl } from "@/lib/api";
+import { apiUpload, fetchMediaObjectUrl, uploadSmart } from "@/lib/api";
 
 type Props = {
   patientId: string;
@@ -31,7 +31,7 @@ export function PatientAvatar({
     setPreview(null);
     fetchMediaObjectUrl(photoUrl).then((url) => {
       if (!active) {
-        if (url) URL.revokeObjectURL(url);
+        if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
         return;
       }
       objectUrl = url;
@@ -39,7 +39,7 @@ export function PatientAvatar({
     });
     return () => {
       active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (objectUrl?.startsWith("blob:")) URL.revokeObjectURL(objectUrl);
     };
   }, [photoUrl]);
 
@@ -53,12 +53,17 @@ export function PatientAvatar({
     try {
       const local = URL.createObjectURL(file);
       setPreview(local);
-      const fd = new FormData();
-      fd.append("photo", file);
-      const updated = await apiUpload<{ photoUrl: string }>(`/patients/${patientId}/photo`, fd);
+      const updated = (await uploadSmart(file, "patients", {
+        kind: "image",
+        multipartPath: `/patients/${patientId}/photo`,
+        formField: "photo",
+        confirmPath: `/patients/${patientId}/photo/confirm`,
+        confirmBody: (fileUrl) => ({ photoUrl: fileUrl }),
+      })) as { photoUrl: string };
       const url = await fetchMediaObjectUrl(updated.photoUrl);
       setPreview(url);
       onUpdated?.(updated.photoUrl);
+      URL.revokeObjectURL(local);
     } catch (err) {
       const url = await fetchMediaObjectUrl(photoUrl);
       setPreview(url);

@@ -18,11 +18,30 @@ export function mediaUrl(path?: string | null) {
   return `${API_URL}/media/${cleaned}`;
 }
 
-/** Baixa mídia com Bearer e devolve object URL (para <img>). */
+/** URL pronta para <img>/<video>. HTTPS público não baixa para a memória do browser. */
 export async function fetchMediaObjectUrl(path?: string | null): Promise<string | null> {
+  if (!path) return null;
+  if (path.startsWith("blob:") || path.startsWith("data:")) return path;
+  if (path.startsWith("http://") || path.startsWith("https://")) {
+    return path;
+  }
+
+  // Nuvem privada: URL assinada (melhor para vídeo grande)
+  try {
+    const status = await getStorageStatus();
+    if (status.cloud && path.startsWith("/uploads/")) {
+      const signed = await api<{ url: string }>("/storage/sign-read", {
+        method: "POST",
+        body: JSON.stringify({ url: path }),
+      });
+      if (signed?.url) return signed.url;
+    }
+  } catch {
+    /* fallback abaixo */
+  }
+
   const url = mediaUrl(path);
   if (!url) return null;
-  if (url.startsWith("blob:") || url.startsWith("data:")) return url;
   const token = getToken();
   const res = await fetch(url, {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
@@ -30,6 +49,114 @@ export async function fetchMediaObjectUrl(path?: string | null): Promise<string 
   if (!res.ok) return null;
   const blob = await res.blob();
   return URL.createObjectURL(blob);
+}
+
+export type StorageFolder = "patients" | "professionals" | "classes" | "clinical";
+export type StorageKind = "image" | "video" | "document";
+
+export type StorageStatus = {
+  cloud: boolean;
+  maxImageMb: number;
+  maxVideoMb: number;
+  maxDocMb: number;
+  publicBase: string | null;
+};
+
+let storageStatusCache: StorageStatus | null = null;
+
+export async function getStorageStatus(): Promise<StorageStatus> {
+  if (storageStatusCache) return storageStatusCache;
+  storageStatusCache = await api<StorageStatus>("/storage/status");
+  return storageStatusCache;
+}
+
+function inferClientKind(file: File): StorageKind {
+  if (file.type.startsWith("image/")) return "image";
+  if (file.type.startsWith("video/")) return "video";
+  return "document";
+}
+
+/** Upload direto à nuvem (presign) — não passa o arquivo pela memória da API. */
+export async function directCloudUpload(
+  file: File,
+  folder: StorageFolder,
+  kind?: StorageKind,
+): Promise<{ fileUrl: string; kind: StorageKind }> {
+  const resolvedKind = kind || inferClientKind(file);
+  const contentType = file.type || "application/octet-stream";
+  const presign = await api<{
+    uploadUrl: string;
+    fileUrl: string;
+    kind: StorageKind;
+    headers: Record<string, string>;
+  }>("/storage/presign", {
+    method: "POST",
+    body: JSON.stringify({
+      folder,
+      contentType,
+      fileName: file.name,
+      fileSize: file.size,
+      kind: resolvedKind,
+    }),
+  });
+
+  const put = await fetch(presign.uploadUrl, {
+    method: "PUT",
+    body: file,
+    headers: presign.headers,
+  });
+  if (!put.ok) {
+    throw new Error(`Falha no upload para a nuvem (HTTP ${put.status})`);
+  }
+  return { fileUrl: presign.fileUrl, kind: presign.kind || resolvedKind };
+}
+
+/**
+ * Envia arquivo: nuvem (presign) se configurada; senão multipart pela API (arquivos menores).
+ */
+export async function uploadSmart(
+  file: File,
+  folder: StorageFolder,
+  options?: {
+    kind?: StorageKind;
+    multipartPath?: string;
+    formField?: string;
+    confirmPath?: string;
+    confirmBody?: (fileUrl: string, kind: StorageKind) => Record<string, unknown>;
+  },
+): Promise<unknown> {
+  const kind = options?.kind || inferClientKind(file);
+  let cloud = false;
+  try {
+    cloud = (await getStorageStatus()).cloud;
+  } catch {
+    cloud = false;
+  }
+
+  if (cloud) {
+    const { fileUrl } = await directCloudUpload(file, folder, kind);
+    if (options?.confirmPath) {
+      return api(options.confirmPath, {
+        method: "POST",
+        body: JSON.stringify(
+          options.confirmBody?.(fileUrl, kind) ?? { url: fileUrl, kind, name: file.name },
+        ),
+      });
+    }
+    return { fileUrl, kind };
+  }
+
+  if (!options?.multipartPath) {
+    throw new Error("Storage em nuvem não configurado e sem rota de upload local");
+  }
+  if (kind === "video" && file.size > 80 * 1024 * 1024) {
+    throw new Error(
+      "Vídeo grande demais para upload local. Configure S3/R2 (nuvem) na API.",
+    );
+  }
+  const fd = new FormData();
+  fd.append(options.formField || "file", file);
+  return apiUpload(options.multipartPath, fd);
 }
 
 export function getToken() {

@@ -67,8 +67,8 @@ git push -u origin main
 3. Serviço **api**  
    - Build: `npm run build:api`  
    - Start: `npm run start:api`  
-   - Vars: `DATABASE_URL` (do Postgres), `JWT_SECRET`, `CORS_ORIGIN`, `UPLOADS_DIR=/data/uploads`  
-   - Volume em `/data/uploads`  
+   - Vars: `DATABASE_URL`, `JWT_SECRET`, `CORS_ORIGIN`, **S3/R2** (`S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_ENDPOINT`, `S3_PUBLIC_BASE_URL`)  
+   - Vídeos grandes: upload direto à nuvem (`STORAGE_MAX_VIDEO_MB=512`) — ver `DEPLOY.md`  
 4. Serviço **web**  
    - Build: `npm run build:web`  
    - Start: `npm run start:web`  

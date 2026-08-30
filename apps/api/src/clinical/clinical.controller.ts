@@ -23,6 +23,7 @@ import {
 import { AuthUser, isClinician } from "../common/auth-user";
 import { JwtAuthGuard, Roles, RolesGuard } from "../common/guards";
 import { ensureUploadDir } from "../common/uploads-path";
+import { StorageService } from "../storage/storage.service";
 
 const clinicalDir = ensureUploadDir("clinical");
 
@@ -76,7 +77,10 @@ function uploadInterceptor() {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller("clinical")
 export class ClinicalController {
-  constructor(private clinical: ClinicalService) {}
+  constructor(
+    private clinical: ClinicalService,
+    private storage: StorageService,
+  ) {}
 
   @Roles("ADMIN", "FISIOTERAPEUTA")
   @Get("patients/:patientId/timeline")
@@ -138,10 +142,35 @@ export class ClinicalController {
   }
 
   @Roles("ADMIN", "FISIOTERAPEUTA")
-  @Delete("notes/:id/attachments")
-  removeNoteAttachment(@Param("id") id: string, @Body() body: { url?: string }) {
+  @Post("notes/:id/attachments/confirm")
+  confirmNoteAttachment(
+    @Param("id") id: string,
+    @Body()
+    body: {
+      url?: string;
+      kind?: "image" | "video" | "document";
+      name?: string;
+      mime?: string;
+    },
+  ) {
     if (!body?.url) throw new BadRequestException("Informe a URL do anexo");
-    return this.clinical.removeNoteAttachment(id, body.url);
+    this.storage.assertOwnedUrl(body.url, "clinical");
+    const ext = extname(body.name || body.url).toLowerCase();
+    return this.clinical.addNoteAttachment(id, {
+      url: body.url,
+      kind: body.kind || attachmentKindFromExt(ext),
+      name: body.name || "arquivo",
+      mime: body.mime,
+    });
+  }
+
+  @Roles("ADMIN", "FISIOTERAPEUTA")
+  @Delete("notes/:id/attachments")
+  async removeNoteAttachment(@Param("id") id: string, @Body() body: { url?: string }) {
+    if (!body?.url) throw new BadRequestException("Informe a URL do anexo");
+    const result = await this.clinical.removeNoteAttachment(id, body.url);
+    await this.storage.deleteByStoredUrl(body.url);
+    return result;
   }
 
   @Roles("ADMIN", "FISIOTERAPEUTA")
@@ -162,13 +191,38 @@ export class ClinicalController {
   }
 
   @Roles("ADMIN", "FISIOTERAPEUTA")
+  @Post("assessments/:id/attachments/confirm")
+  confirmAssessmentAttachment(
+    @Param("id") id: string,
+    @Body()
+    body: {
+      url?: string;
+      kind?: "image" | "video" | "document";
+      name?: string;
+      mime?: string;
+    },
+  ) {
+    if (!body?.url) throw new BadRequestException("Informe a URL do anexo");
+    this.storage.assertOwnedUrl(body.url, "clinical");
+    const ext = extname(body.name || body.url).toLowerCase();
+    return this.clinical.addAssessmentAttachment(id, {
+      url: body.url,
+      kind: body.kind || attachmentKindFromExt(ext),
+      name: body.name || "arquivo",
+      mime: body.mime,
+    });
+  }
+
+  @Roles("ADMIN", "FISIOTERAPEUTA")
   @Delete("assessments/:id/attachments")
-  removeAssessmentAttachment(
+  async removeAssessmentAttachment(
     @Param("id") id: string,
     @Body() body: { url?: string },
   ) {
     if (!body?.url) throw new BadRequestException("Informe a URL do anexo");
-    return this.clinical.removeAssessmentAttachment(id, body.url);
+    const result = await this.clinical.removeAssessmentAttachment(id, body.url);
+    await this.storage.deleteByStoredUrl(body.url);
+    return result;
   }
 
   private requireProfessionalId(user: AuthUser) {

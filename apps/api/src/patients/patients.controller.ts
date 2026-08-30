@@ -21,6 +21,7 @@ import { AuthUser } from "../common/auth-user";
 import { JwtAuthGuard, Roles, RolesGuard } from "../common/guards";
 import { consumeRateLimit } from "../common/rate-limit";
 import { ensureUploadDir } from "../common/uploads-path";
+import { StorageService } from "../storage/storage.service";
 
 const photosDir = ensureUploadDir("patients");
 const IMAGE_EXTS = [".jpg", ".jpeg", ".png", ".webp"];
@@ -28,7 +29,10 @@ const IMAGE_EXTS = [".jpg", ".jpeg", ".png", ".webp"];
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller("patients")
 export class PatientsController {
-  constructor(private patients: PatientsService) {}
+  constructor(
+    private patients: PatientsService,
+    private storage: StorageService,
+  ) {}
 
   @Get()
   list(@Query("q") q?: string) {
@@ -64,7 +68,7 @@ export class PatientsController {
           cb(null, `${Date.now()}-${Math.round(Math.random() * 1e6)}${safeExt}`);
         },
       }),
-      limits: { fileSize: 5 * 1024 * 1024 },
+      limits: { fileSize: 12 * 1024 * 1024 },
       fileFilter: (_req, file, cb) => {
         const ext = extname(file.originalname).toLowerCase();
         const okMime = ["image/jpeg", "image/png", "image/webp"].includes(file.mimetype);
@@ -82,6 +86,18 @@ export class PatientsController {
   ) {
     if (!file) throw new BadRequestException("Nenhuma foto enviada");
     return this.patients.updatePhoto(id, `/uploads/patients/${file.filename}`);
+  }
+
+  /** Confirma foto já enviada à nuvem (presign → PUT). */
+  @Roles("ADMIN", "RECEPCAO")
+  @Post(":id/photo/confirm")
+  confirmPhoto(
+    @Param("id") id: string,
+    @Body() body: { photoUrl?: string },
+  ) {
+    if (!body?.photoUrl) throw new BadRequestException("Informe photoUrl");
+    this.storage.assertOwnedUrl(body.photoUrl, "patients");
+    return this.patients.updatePhoto(id, body.photoUrl);
   }
 
   @Roles("ADMIN", "RECEPCAO")
