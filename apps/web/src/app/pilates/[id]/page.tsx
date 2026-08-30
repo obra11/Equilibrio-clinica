@@ -61,6 +61,7 @@ export default function AulaPilatesPage() {
   const [enrollMsg, setEnrollMsg] = useState("");
   const [remindingClass, setRemindingClass] = useState(false);
   const [classRemindMsg, setClassRemindMsg] = useState("");
+  const [remindPatientIds, setRemindPatientIds] = useState<string[]>([]);
   const galleryRef = useRef<HTMLInputElement>(null);
   const cameraPhotoRef = useRef<HTMLInputElement>(null);
   const cameraVideoRef = useRef<HTMLInputElement>(null);
@@ -243,16 +244,33 @@ export default function AulaPilatesPage() {
     }
   }
 
-  async function sendClassReminders() {
+  async function sendClassReminders(patientIds?: string[]) {
     if (!session) return;
-    const n = session.enrollments.filter((e) =>
-      ["CONFIRMADO", "PRESENTE", "LISTA_ESPERA"].includes(e.status),
-    ).length;
-    if (!n) {
-      setError("Não há alunos ativos para lembrar nesta aula.");
+    const activeIds = session.enrollments
+      .filter((e) => ["CONFIRMADO", "PRESENTE", "LISTA_ESPERA"].includes(e.status))
+      .map((e) => e.patient.id);
+    const targets = patientIds?.length
+      ? patientIds.filter((id) => activeIds.includes(id))
+      : remindPatientIds.length
+        ? remindPatientIds.filter((id) => activeIds.includes(id))
+        : [];
+
+    if (!targets.length) {
+      setError("Selecione ao menos um aluno para enviar o lembrete.");
       return;
     }
-    if (!window.confirm(`Enviar lembrete WhatsApp para ${n} aluno(s)?`)) return;
+
+    const names = session.enrollments
+      .filter((e) => targets.includes(e.patient.id))
+      .map((e) => e.patient.fullName);
+    if (
+      !window.confirm(
+        `Enviar lembrete WhatsApp para ${targets.length} aluno(s)?\n\n${names.join("\n")}`,
+      )
+    ) {
+      return;
+    }
+
     setRemindingClass(true);
     setError("");
     setClassRemindMsg("");
@@ -260,20 +278,46 @@ export default function AulaPilatesPage() {
       const res = await api<{
         sent: number;
         total: number;
-        results: Array<{ waUrl?: string; ok?: boolean; status?: string }>;
-      }>(`/classes/${id}/reminders`, { method: "POST" });
+        results: Array<{
+          waUrl?: string;
+          ok?: boolean;
+          status?: string;
+          fullName?: string;
+        }>;
+      }>(`/classes/${id}/reminders`, {
+        method: "POST",
+        body: JSON.stringify({ patientIds: targets }),
+      });
       setClassRemindMsg(`${res.sent}/${res.total} lembrete(s) enviados.`);
-      const link = res.results?.find(
+      const needManual = (res.results || []).filter(
         (r) => r.waUrl && (!r.ok || r.status === "simulated" || r.status === "skipped"),
       );
-      if (link?.waUrl && res.sent === 0) {
-        window.open(link.waUrl, "_blank", "noopener,noreferrer");
+      if (needManual.length === 1 && needManual[0].waUrl) {
+        window.open(needManual[0].waUrl, "_blank", "noopener,noreferrer");
+      } else if (needManual.length > 1) {
+        setClassRemindMsg(
+          `${res.sent}/${res.total} enviados. Use “Abrir WhatsApp” em cada aluno se precisar enviar manualmente.`,
+        );
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao enviar lembretes");
     } finally {
       setRemindingClass(false);
     }
+  }
+
+  function toggleRemindSelect(patientId: string, checked: boolean) {
+    setRemindPatientIds((prev) =>
+      checked ? [...new Set([...prev, patientId])] : prev.filter((id) => id !== patientId),
+    );
+  }
+
+  function selectAllForRemind() {
+    if (!session) return;
+    const ids = session.enrollments
+      .filter((e) => ["CONFIRMADO", "PRESENTE", "LISTA_ESPERA"].includes(e.status))
+      .map((e) => e.patient.id);
+    setRemindPatientIds(ids);
   }
 
   const filled =
@@ -297,10 +341,14 @@ export default function AulaPilatesPage() {
           <button
             type="button"
             className="eq-btn"
-            disabled={remindingClass || !session}
-            onClick={sendClassReminders}
+            disabled={remindingClass || !session || remindPatientIds.length === 0}
+            onClick={() => sendClassReminders()}
           >
-            {remindingClass ? "Enviando..." : "Lembrar alunos (WhatsApp)"}
+            {remindingClass
+              ? "Enviando..."
+              : remindPatientIds.length
+                ? `Lembrar selecionados (${remindPatientIds.length})`
+                : "Selecione alunos para lembrar"}
           </button>
           <Link href="/pilates" className="eq-btn-ghost">
             Voltar às turmas
@@ -508,7 +556,7 @@ export default function AulaPilatesPage() {
                 <div>
                   <h2 className="font-display text-xl text-olive">Alunos inscritos</h2>
                   <p className="text-xs text-olive-muted">
-                    Abra o prontuário para evolução e anamnese de cada aluno
+                    Marque os alunos e envie o lembrete WhatsApp só para eles
                   </p>
                 </div>
                 <p className="text-sm font-semibold text-gold">
@@ -561,59 +609,107 @@ export default function AulaPilatesPage() {
               {session.enrollments.length === 0 ? (
                 <p className="text-sm text-olive-muted">Nenhum aluno inscrito ainda.</p>
               ) : (
-                <ul className="space-y-2">
-                  {session.enrollments.map((e) => (
-                    <li
-                      key={e.id}
-                      className="flex flex-wrap items-center justify-between gap-2 border-b border-borderEq/70 py-2 text-sm"
+                <>
+                  <div className="mb-2 flex flex-wrap items-center gap-3 text-xs">
+                    <button
+                      type="button"
+                      className="font-semibold text-olive underline"
+                      onClick={selectAllForRemind}
                     >
-                      <div className="min-w-0">
-                        <p className="font-medium text-olive">
-                          {e.patient.fullName}
-                          {e.isMakeup ? (
-                            <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-gold">
+                      Selecionar todos para lembrete
+                    </button>
+                    <button
+                      type="button"
+                      className="font-semibold text-olive-muted underline"
+                      onClick={() => setRemindPatientIds([])}
+                    >
+                      Limpar seleção
+                    </button>
+                    <span className="text-olive-muted">
+                      {remindPatientIds.length} selecionado(s)
+                    </span>
+                  </div>
+                  <ul className="space-y-2">
+                    {session.enrollments.map((e) => {
+                      const canRemind = ["CONFIRMADO", "PRESENTE", "LISTA_ESPERA"].includes(
+                        e.status,
+                      );
+                      return (
+                        <li
+                          key={e.id}
+                          className="flex flex-wrap items-center justify-between gap-2 border-b border-borderEq/70 py-2 text-sm"
+                        >
+                          <div className="flex min-w-0 items-start gap-2">
+                            <input
+                              type="checkbox"
+                              className="mt-1"
+                              disabled={!canRemind}
+                              checked={remindPatientIds.includes(e.patient.id)}
+                              onChange={(ev) =>
+                                toggleRemindSelect(e.patient.id, ev.target.checked)
+                              }
+                              title="Selecionar para lembrete"
+                            />
+                            <div className="min-w-0">
+                              <p className="font-medium text-olive">
+                                {e.patient.fullName}
+                                {e.isMakeup ? (
+                                  <span className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-gold">
+                                    Reposição
+                                  </span>
+                                ) : null}
+                              </p>
+                              <Link
+                                href={`/pacientes/${e.patient.id}`}
+                                className="text-xs font-semibold text-olive underline-offset-2 hover:underline"
+                              >
+                                Abrir prontuário →
+                              </Link>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {canRemind ? (
+                              <button
+                                type="button"
+                                className="text-xs font-semibold text-olive underline"
+                                disabled={remindingClass}
+                                onClick={() => sendClassReminders([e.patient.id])}
+                              >
+                                Lembrar
+                              </button>
+                            ) : null}
+                            <label className="flex items-center gap-1 text-[10px] text-olive-muted">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(e.isMakeup)}
+                                onChange={(ev) => toggleMakeup(e.id, ev.target.checked)}
+                              />
                               Reposição
-                            </span>
-                          ) : null}
-                        </p>
-                        <Link
-                          href={`/pacientes/${e.patient.id}`}
-                          className="text-xs font-semibold text-olive underline-offset-2 hover:underline"
-                        >
-                          Abrir prontuário →
-                        </Link>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <label className="flex items-center gap-1 text-[10px] text-olive-muted">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(e.isMakeup)}
-                            onChange={(ev) => toggleMakeup(e.id, ev.target.checked)}
-                          />
-                          Reposição
-                        </label>
-                        <select
-                          className="eq-input py-1 text-xs"
-                          value={e.status}
-                          onChange={(ev) => changeStatus(e.id, ev.target.value)}
-                        >
-                          {ENROLL_STATUSES.map((s) => (
-                            <option key={s} value={s}>
-                              {s}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          className="text-xs text-red-700 hover:underline"
-                          onClick={() => removeEnrollment(e.id, e.patient.fullName)}
-                        >
-                          Remover
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                            </label>
+                            <select
+                              className="eq-input py-1 text-xs"
+                              value={e.status}
+                              onChange={(ev) => changeStatus(e.id, ev.target.value)}
+                            >
+                              {ENROLL_STATUSES.map((s) => (
+                                <option key={s} value={s}>
+                                  {s}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              className="text-xs text-red-700 hover:underline"
+                              onClick={() => removeEnrollment(e.id, e.patient.fullName)}
+                            >
+                              Remover
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
               )}
             </div>
           </div>

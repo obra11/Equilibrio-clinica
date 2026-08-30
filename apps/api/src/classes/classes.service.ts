@@ -593,8 +593,8 @@ export class ClassesService {
     return { ok: true };
   }
 
-  /** Envia lembrete WhatsApp aos alunos ativos da aula. */
-  async sendReminders(id: string) {
+  /** Envia lembrete WhatsApp aos alunos ativos da aula (ou só aos patientIds informados). */
+  async sendReminders(id: string, patientIds?: string[]) {
     const session = await this.prisma.classSession.findUnique({
       where: { id },
       include: {
@@ -608,9 +608,21 @@ export class ClassesService {
     });
     if (!session) throw new NotFoundException("Aula não encontrada");
 
-    const active = session.enrollments.filter((e) =>
-      ["CONFIRMADO", "PRESENTE", "LISTA_ESPERA"].includes(e.status),
-    );
+    const selected = patientIds?.length
+      ? new Set(patientIds)
+      : null;
+
+    const active = session.enrollments.filter((e) => {
+      if (!["CONFIRMADO", "PRESENTE", "LISTA_ESPERA"].includes(e.status)) return false;
+      if (selected && !selected.has(e.patientId)) return false;
+      return true;
+    });
+
+    if (selected && active.length === 0) {
+      throw new BadRequestException(
+        "Nenhum dos alunos selecionados está ativo nesta aula",
+      );
+    }
 
     const results = [];
     for (const e of active) {

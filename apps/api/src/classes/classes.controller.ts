@@ -143,7 +143,10 @@ export class ClassesController {
 
   @Roles("ADMIN", "RECEPCAO")
   @Post(":id/reminders")
-  sendReminders(@Param("id") id: string) {
-    return this.classes.sendReminders(id);
+  sendReminders(
+    @Param("id") id: string,
+    @Body() body: { patientIds?: string[] },
+  ) {
+    return this.classes.sendReminders(id, body?.patientIds);
   }
 }
