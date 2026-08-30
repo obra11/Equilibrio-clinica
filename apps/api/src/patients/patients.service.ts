@@ -69,8 +69,11 @@ function sanitizeWhatsappResult(
     ok: result.ok,
     status: result.status,
     to: result.to,
+    from: result.from,
     provider: result.provider,
     detail: result.detail,
+    message: result.message,
+    waUrl: result.waUrl,
   };
 }
 

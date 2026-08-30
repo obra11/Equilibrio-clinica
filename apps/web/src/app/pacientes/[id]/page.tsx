@@ -298,15 +298,25 @@ export default function PacienteDetailPage() {
                   status: string;
                   detail?: string;
                   to?: string;
+                  from?: string;
+                  waUrl?: string;
+                  message?: string;
                 }>(`/patients/${id}/welcome-whatsapp`, { method: "POST" });
                 if (res.status === "sent") {
-                  window.alert(`WhatsApp enviado para ${res.to}`);
-                } else if (res.status === "simulated") {
                   window.alert(
-                    `WhatsApp simulado para ${res.to}.\nConfigure Evolution/Meta no .env para envio real.`,
+                    `WhatsApp enviado para ${res.to}\nOrigem: WhatsApp da clínica +55 48 98488-2418`,
+                  );
+                } else if (res.status === "simulated" || res.waUrl) {
+                  if (res.waUrl) {
+                    window.open(res.waUrl, "_blank", "noopener,noreferrer");
+                  }
+                  window.alert(
+                    `Mensagem pronta para ${res.to || "o paciente"}.\n\n` +
+                      `Abra o WhatsApp da clínica (+55 48 98488-2418) e confirme o envio.\n` +
+                      `Se a conversa abriu no navegador, basta clicar em Enviar.`,
                   );
                 } else {
-                  window.alert(res.detail || "Não foi possível enviar o WhatsApp");
+                  window.alert(res.detail || "Não foi possível preparar o WhatsApp");
                 }
               } catch (e) {
                 window.alert(e instanceof Error ? e.message : "Erro ao enviar WhatsApp");

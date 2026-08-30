@@ -14,6 +14,7 @@ type CreatePatientResponse = {
     status: string;
     detail?: string;
     to?: string;
+    waUrl?: string;
   };
 };
 
@@ -39,10 +40,14 @@ export default function NovoPacientePage() {
 
     const wa = created.welcomeWhatsapp;
     if (wa?.status === "sent") {
-      window.alert(`Paciente cadastrado.\nWhatsApp de boas-vindas enviado para ${wa.to}.`);
-    } else if (wa?.status === "simulated") {
       window.alert(
-        `Paciente cadastrado.\nWhatsApp de boas-vindas preparado (modo desenvolvimento).\nDestino: ${wa.to || "—"}\n\nPara envio real, configure a Evolution API ou Meta no .env da API.`,
+        `Paciente cadastrado.\nWhatsApp enviado para ${wa.to}\nOrigem: +55 48 98488-2418`,
+      );
+    } else if (wa?.status === "simulated" || wa?.waUrl) {
+      if (wa.waUrl) window.open(wa.waUrl, "_blank", "noopener,noreferrer");
+      window.alert(
+        `Paciente cadastrado.\nMensagem de boas-vindas pronta para ${wa.to || "o paciente"}.\n\n` +
+          `Use o WhatsApp da clínica (+55 48 98488-2418) e confirme o envio.`,
       );
     } else if (wa?.status === "skipped") {
       window.alert(`Paciente cadastrado.\nWhatsApp não enviado: ${wa.detail || "—"}`);
