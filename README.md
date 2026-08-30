@@ -41,8 +41,9 @@ npm run dev:web
 | Perfil | E-mail | Senha |
 |--------|--------|-------|
 | Admin | admin@equilibrio.fisio.br | admin123 |
+| Admin (Lizandra) | liz@equilibrio.fisio.br | fisio123 |
 | Recepção | recepcao@equilibrio.fisio.br | recepcao123 |
-| Fisioterapeuta | lizandra@equilibrio.fisio.br | fisio123 |
+| Fisioterapeuta | mirele@equilibrio.fisio.br | fisio123 |
 
 ## Deploy (GitHub + Railway + Registro.br)
 
