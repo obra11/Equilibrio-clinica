@@ -14,6 +14,7 @@ type ClassSession = {
   startsAt: string;
   endsAt: string;
   notes?: string | null;
+  lessonPlan?: string | null;
   professionalId: string;
   serviceTypeId: string;
   roomId?: string | null;
@@ -38,6 +39,9 @@ export default function AulaPilatesPage() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [enrollPatientId, setEnrollPatientId] = useState("");
   const [enrollStatus, setEnrollStatus] = useState("CONFIRMADO");
+  const [lessonPlan, setLessonPlan] = useState("");
+  const [savingPlan, setSavingPlan] = useState(false);
+  const [planSaved, setPlanSaved] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
 
@@ -47,6 +51,7 @@ export default function AulaPilatesPage() {
       api<Patient[]>("/patients"),
     ]);
     setSession(cls);
+    setLessonPlan(cls.lessonPlan || "");
     setInitial({
       title: cls.title,
       professionalId: cls.professionalId,
@@ -109,6 +114,25 @@ export default function AulaPilatesPage() {
     }
   }
 
+  async function saveLessonPlan(e: FormEvent) {
+    e.preventDefault();
+    setSavingPlan(true);
+    setPlanSaved(false);
+    setError("");
+    try {
+      await api(`/classes/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ lessonPlan: lessonPlan.trim() || null }),
+      });
+      setPlanSaved(true);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao salvar plano de aula");
+    } finally {
+      setSavingPlan(false);
+    }
+  }
+
   const filled =
     session?.enrollments.filter((e) => e.status === "CONFIRMADO" || e.status === "PRESENTE")
       .length ?? 0;
@@ -140,38 +164,73 @@ export default function AulaPilatesPage() {
         <p className="text-olive-muted">Carregando...</p>
       ) : (
         <div className="grid gap-6 lg:grid-cols-2">
-          <div>
-            <h2 className="mb-3 font-display text-xl text-olive">Editar aula</h2>
-            <ClassForm
-              key={session.id}
-              initial={initial}
-              submitLabel="Salvar alterações"
-              onCancel={() => router.push("/pilates")}
-              onSubmit={async (values) => {
-                setSaved(false);
-                await api(`/classes/${id}`, {
-                  method: "PATCH",
-                  body: JSON.stringify({
-                    title: values.title,
-                    professionalId: values.professionalId,
-                    serviceTypeId: values.serviceTypeId,
-                    roomId: values.roomId || null,
-                    capacity: Number(values.capacity),
-                    startsAt: new Date(values.startsAt).toISOString(),
-                    endsAt: values.endsAt,
-                    notes: values.notes || null,
-                  }),
-                });
-                setSaved(true);
-                await load();
-              }}
-            />
+          <div className="space-y-6">
+            <div>
+              <h2 className="mb-3 font-display text-xl text-olive">Editar aula</h2>
+              <ClassForm
+                key={session.id}
+                initial={initial}
+                submitLabel="Salvar alterações"
+                onCancel={() => router.push("/pilates")}
+                onSubmit={async (values) => {
+                  setSaved(false);
+                  await api(`/classes/${id}`, {
+                    method: "PATCH",
+                    body: JSON.stringify({
+                      title: values.title,
+                      professionalId: values.professionalId,
+                      serviceTypeId: values.serviceTypeId,
+                      roomId: values.roomId || null,
+                      capacity: Number(values.capacity),
+                      startsAt: new Date(values.startsAt).toISOString(),
+                      endsAt: values.endsAt,
+                      notes: values.notes || null,
+                    }),
+                  });
+                  setSaved(true);
+                  await load();
+                }}
+              />
+            </div>
+
+            <form onSubmit={saveLessonPlan} className="eq-card space-y-3">
+              <div>
+                <h2 className="font-display text-xl text-olive">Plano de aula</h2>
+                <p className="mt-1 text-sm text-olive-muted">
+                  Monte a sequência: aquecimento, exercícios, foco e observações da turma.
+                </p>
+              </div>
+              <textarea
+                className="eq-input min-h-40"
+                value={lessonPlan}
+                onChange={(e) => {
+                  setLessonPlan(e.target.value);
+                  setPlanSaved(false);
+                }}
+                placeholder={`Exemplo:
+1. Aquecimento — respiração e mobilidade (5 min)
+2. Centragem — hundred / bridge
+3. Fortalecimento — series of 5
+4. Alongamento e fechamento`}
+              />
+              {planSaved ? (
+                <p className="text-sm text-olive">Plano de aula salvo.</p>
+              ) : null}
+              <button className="eq-btn" disabled={savingPlan}>
+                {savingPlan ? "Salvando..." : "Salvar plano de aula"}
+              </button>
+            </form>
           </div>
 
           <div className="space-y-4">
             <div className="eq-card">
               <div className="mb-3 flex items-end justify-between gap-2">
-                <h2 className="font-display text-xl text-olive">Inscritos</h2>
+                <div>
+                  <h2 className="font-display text-xl text-olive">Alunos inscritos</h2>
+                  <p className="text-xs text-olive-muted">
+                    Abra o prontuário para evolução e anamnese de cada aluno
+                  </p>
+                </div>
                 <p className="text-sm font-semibold text-gold">
                   {filled}/{session.capacity} vagas
                 </p>
@@ -212,7 +271,15 @@ export default function AulaPilatesPage() {
                       key={e.id}
                       className="flex flex-wrap items-center justify-between gap-2 border-b border-borderEq/70 py-2 text-sm"
                     >
-                      <span className="font-medium text-olive">{e.patient.fullName}</span>
+                      <div className="min-w-0">
+                        <p className="font-medium text-olive">{e.patient.fullName}</p>
+                        <Link
+                          href={`/pacientes/${e.patient.id}`}
+                          className="text-xs font-semibold text-olive underline-offset-2 hover:underline"
+                        >
+                          Abrir prontuário →
+                        </Link>
+                      </div>
                       <div className="flex items-center gap-2">
                         <select
                           className="eq-input py-1 text-xs"

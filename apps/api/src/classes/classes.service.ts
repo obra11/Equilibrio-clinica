@@ -169,6 +169,7 @@ export class ClassesService {
     startsAt: string;
     endsAt?: string;
     notes?: string | null;
+    lessonPlan?: string | null;
     weekdays?: number[];
     repeatUntil?: string | null;
     weeksCount?: number | null;
@@ -243,6 +244,7 @@ export class ClassesService {
           startsAt: occ.startsAt,
           endsAt: occ.endsAt,
           notes: data.notes || null,
+          lessonPlan: data.lessonPlan || null,
           seriesGroupId,
           weekdays: weekdaysJson,
         },
@@ -279,6 +281,7 @@ export class ClassesService {
       startsAt?: string;
       endsAt?: string;
       notes?: string | null;
+      lessonPlan?: string | null;
     },
   ) {
     const current = await this.get(id);
@@ -309,6 +312,7 @@ export class ClassesService {
         startsAt,
         endsAt,
         ...(data.notes !== undefined ? { notes: data.notes || null } : {}),
+        ...(data.lessonPlan !== undefined ? { lessonPlan: data.lessonPlan || null } : {}),
       },
       include: {
         professional: true,
